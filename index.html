@@ -1,0 +1,1554 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Homeless Encampment Map</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #0d1117; color: #e6edf3; height: 100vh; overflow: hidden; }
+
+    /* ── LOGIN ── */
+    #loginScreen { display: flex; align-items: center; justify-content: center; height: 100vh; background: radial-gradient(ellipse at 50% 40%, #1a2744 0%, #0d1117 65%); }
+    #loginBox { background: #161b22; padding: 40px; border-radius: 16px; width: 340px; display: flex; flex-direction: column; gap: 14px; box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 24px 48px rgba(0,0,0,0.6); }
+    #loginBox h1 { font-size: 18px; font-weight: 700; text-align: center; letter-spacing: -0.02em; }
+    #loginError { color: #f85149; font-size: 12px; text-align: center; display: none; }
+
+    /* ── APP SHELL ── */
+    #appScreen { display: none; height: 100vh; flex-direction: column; }
+
+    /* ── TOP BAR ── */
+    #topBar { background: rgba(22,27,34,0.97); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); padding: 0 20px; display: flex; align-items: center; gap: 12px; border-bottom: 1px solid rgba(255,255,255,0.07); z-index: 10; height: 56px; flex-shrink: 0; }
+    #topBar h1 { font-size: 14px; font-weight: 700; white-space: nowrap; letter-spacing: -0.02em; }
+    .global-search-wrap { position: relative; flex: 1; max-width: 420px; display: flex; }
+    .global-search-wrap input { flex: 1; padding: 8px 12px; background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); border-right: none; border-radius: 8px 0 0 8px; color: #e6edf3; font-size: 13px; font-family: inherit; transition: border-color 0.2s, background 0.2s; }
+    .global-search-wrap input:focus { outline: none; border-color: rgba(79,125,219,0.55); background: rgba(255,255,255,0.09); }
+    .global-search-wrap button { padding: 8px 14px; background: #4f7ddb; border: none; border-radius: 0 8px 8px 0; color: white; font-size: 13px; font-family: inherit; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    .global-search-wrap button:hover { background: #6090e8; }
+    .autocomplete-list { position: absolute; top: 100%; left: 0; right: 0; background: #1c2333; border: 1px solid rgba(255,255,255,0.1); border-radius: 0 0 10px 10px; z-index: 1000; max-height: 200px; overflow-y: auto; box-shadow: 0 12px 32px rgba(0,0,0,0.5); }
+    .autocomplete-item { padding: 9px 12px; font-size: 12px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.05); }
+    .autocomplete-item:hover { background: rgba(255,255,255,0.06); }
+    .autocomplete-item:last-child { border-bottom: none; }
+    #topBarRight { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .user-badge { font-size: 11px; color: #8b92a8; cursor: pointer; white-space: nowrap; transition: color 0.2s; }
+    .user-badge:hover { color: #e6edf3; }
+
+    /* ── MAIN LAYOUT ── */
+    #mainArea { display: flex; flex: 1; overflow: hidden; }
+
+    /* ── SIDEBAR ── */
+    #sidebar { width: 300px; min-width: 300px; background: #161b22; display: flex; flex-direction: column; padding: 16px; gap: 10px; border-right: 1px solid rgba(255,255,255,0.07); overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(255,255,255,0.1) transparent; }
+    #sidebar::-webkit-scrollbar { width: 4px; }
+    #sidebar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+    #map { flex: 1; }
+
+    /* ── FORMS ── */
+    input, textarea, select { width: 100%; padding: 9px 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; color: #e6edf3; font-size: 13px; font-family: inherit; transition: border-color 0.2s, background 0.2s; }
+    input:focus, textarea:focus, select:focus { outline: none; border-color: rgba(79,125,219,0.55); background: rgba(255,255,255,0.08); }
+    input::placeholder, textarea::placeholder { color: #565f7e; }
+    textarea { resize: vertical; min-height: 55px; }
+    label { font-size: 11px; color: #8b92a8; font-weight: 500; display: block; margin-bottom: 3px; }
+    select option { background: #1c2333; }
+
+    /* ── BUTTONS ── */
+    .btn { padding: 10px 16px; border: none; border-radius: 8px; color: white; font-size: 13px; font-weight: 600; cursor: pointer; width: 100%; font-family: inherit; transition: filter 0.15s, transform 0.12s; letter-spacing: 0.01em; }
+    .btn:hover { filter: brightness(1.18); }
+    .btn:active { transform: scale(0.97); }
+    .btn-blue   { background: linear-gradient(135deg,#4f7ddb,#3a68c4); }
+    .btn-green  { background: linear-gradient(135deg,#34c97e,#28a868); }
+    .btn-orange { background: linear-gradient(135deg,#f07840,#d46530); }
+    .btn-orange.active { background: linear-gradient(135deg,#f5a030,#e08820); }
+    .btn-red    { background: linear-gradient(135deg,#f04f5a,#d43d48); }
+    .btn-purple { background: linear-gradient(135deg,#8b5cf6,#7340df); }
+    .btn-purple.active { background: linear-gradient(135deg,#a878ff,#8844ee); }
+    .btn-teal   { background: linear-gradient(135deg,#22d3ee,#0ea5c9); }
+    .btn-teal.active { background: linear-gradient(135deg,#00eeff,#00ccdd); }
+    .btn-yellow { background: linear-gradient(135deg,#f5c842,#d9a830); }
+    .btn-sm { padding: 7px 12px; font-size: 12px; }
+    .btn-outline { padding: 8px 12px; background: transparent; border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #8b92a8; font-size: 12px; cursor: pointer; width: 100%; font-family: inherit; font-weight: 500; transition: background 0.2s, color 0.2s, border-color 0.2s; }
+    .btn-outline:hover { background: rgba(255,255,255,0.06); color: #e6edf3; border-color: rgba(255,255,255,0.25); }
+
+    /* ── LABELS & HINTS ── */
+    .section-title { font-size: 10px; color: #565f7e; text-transform: uppercase; letter-spacing: 1.2px; font-weight: 600; margin-top: 4px; }
+    .hint-text { font-size: 11px; color: #565f7e; line-height: 1.5; }
+
+    /* ── PREVIEW BANNER ── */
+    .preview-banner { background: rgba(52,201,126,0.1); border: 1px solid rgba(52,201,126,0.3); border-radius: 8px; padding: 9px 12px; font-size: 12px; font-weight: 500; color: #34c97e; text-align: center; display: none; }
+    .preview-banner.visible { display: block; }
+
+    /* ── TABS ── */
+    .tab-bar { display: flex; gap: 4px; background: rgba(255,255,255,0.04); padding: 4px; border-radius: 10px; }
+    .tab-btn { flex: 1; padding: 7px 4px; background: transparent; border: none; border-radius: 7px; color: #565f7e; font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; transition: background 0.2s, color 0.2s; letter-spacing: 0.02em; }
+    .tab-btn.active { background: #252836; color: #e6edf3; box-shadow: 0 1px 4px rgba(0,0,0,0.35); }
+    .tab-btn:not(.active):hover { color: #aab0be; }
+
+    /* ── JOB CARDS ── */
+    .job-list { display: flex; flex-direction: column; gap: 8px; }
+    .job-card { background: #1c2333; border-radius: 10px; padding: 12px; cursor: pointer; border: 1px solid rgba(255,255,255,0.06); border-left: 3px solid #4f7ddb; transition: background 0.2s, transform 0.15s; }
+    .job-card:hover { background: #212d42; transform: translateX(2px); }
+    .job-card.hazard-card   { border-left-color: #f04f5a; }
+    .job-card.today-card    { border-left-color: #34c97e; }
+    .job-card.tomorrow-card { border-left-color: #f5c842; }
+    .job-card.past-card     { opacity: 0.65; }
+    .job-card.completed-card { border-left-color: rgba(255,255,255,0.15); opacity: 0.6; }
+    .job-card.partial-card  { border-left-color: #f07840; }
+    .job-card.flagged-card  { border-left-color: #f04f5a; background: #1f1520; border-color: rgba(240,79,90,0.15); }
+    .job-card-title  { font-size: 13px; font-weight: 600; margin-bottom: 3px; letter-spacing: -0.01em; }
+    .job-card-detail { font-size: 11px; color: #8b92a8; margin-top: 2px; line-height: 1.4; }
+
+    /* ── STATUS BADGES ── */
+    .status-badge { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 20px; display: inline-block; margin-top: 4px; letter-spacing: 0.03em; }
+    .status-scheduled { background: rgba(79,125,219,0.14); color: #7aabff; border: 1px solid rgba(79,125,219,0.2); }
+    .status-completed { background: rgba(52,201,126,0.12); color: #34c97e; border: 1px solid rgba(52,201,126,0.2); }
+    .status-partial   { background: rgba(240,120,64,0.12); color: #f07840; border: 1px solid rgba(240,120,64,0.2); }
+    .status-flagged   { background: rgba(240,79,90,0.12); color: #f04f5a; border: 1px solid rgba(240,79,90,0.2); }
+
+    /* ── MISC ── */
+    .loading { font-size: 12px; color: #565f7e; padding: 12px; text-align: center; }
+    .user-card { background: #1c2333; border-radius: 10px; padding: 12px; display: flex; justify-content: space-between; align-items: center; border: 1px solid rgba(255,255,255,0.06); }
+    .role-badge { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 20px; letter-spacing: 0.03em; }
+    .role-admin { background: rgba(240,79,90,0.12); color: #f04f5a; border: 1px solid rgba(240,79,90,0.2); }
+    .role-field { background: rgba(52,201,126,0.12); color: #34c97e; border: 1px solid rgba(52,201,126,0.2); }
+
+    .pin-controls { display: flex; gap: 6px; flex-wrap: wrap; }
+    .pin-controls .btn { flex: 1; min-width: 80px; }
+    .location-options { display: flex; gap: 6px; }
+    .location-options .btn { flex: 1; font-size: 11px; padding: 8px; }
+    .job-search-wrap { position: relative; }
+    .job-search-wrap .autocomplete-list { top: 100%; }
+
+    /* ── MODAL ── */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.75); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 2000; display: flex; align-items: center; justify-content: center; animation: fadeIn 0.15s ease; }
+    .modal-box { background: #1c2333; border-radius: 16px; padding: 24px; width: 340px; display: flex; flex-direction: column; gap: 12px; box-shadow: 0 0 0 1px rgba(255,255,255,0.08), 0 24px 48px rgba(0,0,0,0.8); animation: slideUp 0.2s ease; }
+    .modal-box h2 { font-size: 16px; font-weight: 700; letter-spacing: -0.02em; }
+    .modal-actions { display: flex; gap: 8px; }
+    .modal-actions .btn { flex: 1; }
+    @keyframes fadeIn  { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideUp { from { transform: translateY(14px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+    /* ── MOBILE ── */
+    #mobileDrawerBtn { display: none; }
+    #mobileOverlay   { display: none; }
+
+    @media (max-width: 768px) {
+      #topBar { padding: 0 14px; gap: 8px; }
+      #topBar h1 { display: none; }
+      .global-search-wrap { max-width: none; }
+      #previewToggleWrap { display: none !important; }
+
+      #mainArea { position: relative; }
+      #map { position: absolute; inset: 0; height: 100%; width: 100%; }
+
+      #sidebar {
+        position: fixed; bottom: 0; left: 0; right: 0;
+        width: 100%; min-width: unset;
+        max-height: 78vh;
+        border-right: none;
+        border-top: 1px solid rgba(255,255,255,0.1);
+        border-radius: 20px 20px 0 0;
+        padding: 0 16px env(safe-area-inset-bottom, 16px);
+        z-index: 500;
+        transform: translateY(100%);
+        transition: transform 0.38s cubic-bezier(0.32, 0.72, 0, 1);
+        box-shadow: 0 -12px 40px rgba(0,0,0,0.6);
+        gap: 12px;
+      }
+      #sidebar.drawer-open { transform: translateY(0); }
+      #drawerHandle {
+        width: 40px; height: 4px;
+        background: rgba(255,255,255,0.18);
+        border-radius: 2px;
+        margin: 14px auto 2px;
+        flex-shrink: 0;
+        cursor: pointer;
+      }
+
+      #mobileDrawerBtn {
+        display: flex; align-items: center; justify-content: center;
+        position: fixed; bottom: 28px; right: 20px;
+        width: 58px; height: 58px;
+        background: linear-gradient(135deg,#4f7ddb,#3a68c4);
+        border: none; border-radius: 50%; color: white; font-size: 24px;
+        cursor: pointer; z-index: 600;
+        box-shadow: 0 4px 20px rgba(79,125,219,0.55), 0 2px 8px rgba(0,0,0,0.4);
+        transition: transform 0.2s, box-shadow 0.2s, background 0.25s;
+      }
+      #mobileDrawerBtn:active { transform: scale(0.91); }
+      #mobileDrawerBtn.open { background: linear-gradient(135deg,#f04f5a,#d43d48); box-shadow: 0 4px 20px rgba(240,79,90,0.5); }
+
+      #mobileOverlay {
+        display: block; position: fixed; inset: 0;
+        background: rgba(0,0,0,0); z-index: 490;
+        pointer-events: none;
+        transition: background 0.3s;
+        backdrop-filter: blur(0px); -webkit-backdrop-filter: blur(0px);
+      }
+      #mobileOverlay.visible { background: rgba(0,0,0,0.5); pointer-events: all; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+
+      .modal-box { width: calc(100vw - 32px); max-width: 400px; }
+      .btn { padding: 13px 16px; }
+      .btn-sm { padding: 10px 12px; font-size: 12px; }
+      .job-card { padding: 14px; }
+      .job-card-title { font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- LOGIN -->
+<div id="loginScreen">
+  <div id="loginBox">
+    <h1>🗺️ Homeless Encampment Map</h1>
+    <input type="text" id="loginUser" placeholder="Username" />
+    <input type="password" id="loginPass" placeholder="Password" />
+    <div id="loginError">Invalid username or password.</div>
+    <button class="btn btn-blue" onclick="doLogin()">Log In</button>
+  </div>
+</div>
+
+<!-- MOBILE OVERLAY & FAB -->
+<div id="mobileOverlay" onclick="closeMobileDrawer()"></div>
+<button id="mobileDrawerBtn" onclick="toggleMobileDrawer()">☰</button>
+
+<!-- MODAL -->
+<div class="modal-overlay" id="modalOverlay" style="display:none;">
+  <div class="modal-box" id="modalBox"></div>
+</div>
+
+<!-- APP -->
+<div id="appScreen">
+  <div id="topBar">
+    <h1>🗺️ Encampment Map</h1>
+    <div class="global-search-wrap">
+      <input type="text" id="globalSearch" placeholder="Search any location to navigate map..."
+        oninput="onGlobalSearchInput()" onkeydown="if(event.key==='Enter')triggerGlobalSearch()" autocomplete="off" />
+      <button onclick="triggerGlobalSearch()">🔍 Search</button>
+      <div class="autocomplete-list" id="globalAutocomplete" style="display:none;"></div>
+    </div>
+    <div id="topBarRight">
+      <div id="previewToggleWrap" style="display:none;">
+        <button class="btn-outline" id="previewBtn" onclick="togglePreview()" style="padding:6px 12px;font-size:12px;">👁️ Preview Field View</button>
+      </div>
+      <div class="user-badge" onclick="doLogout()">👤 <span id="userLabel"></span> · <u>Log out</u></div>
+    </div>
+  </div>
+
+  <div id="mainArea">
+    <div id="sidebar">
+      <div id="drawerHandle" onclick="closeMobileDrawer()"></div>
+      <div class="preview-banner" id="previewBanner">👁️ Previewing Field View</div>
+
+      <div id="layerControls" style="display:none; flex-direction:column; gap:6px;">
+        <div class="section-title">Map Layers (Admin Only)</div>
+        <div style="display:flex; gap:6px;">
+          <button class="btn btn-teal btn-sm" id="propertyLayerBtn" onclick="togglePropertyLayer()" style="flex:1;">🏠 Property</button>
+          <button class="btn btn-purple btn-sm" id="jurisdictionLayerBtn" onclick="toggleJurisdictionLayer()" style="flex:1;">🚔 Jurisdictions</button>
+        </div>
+      </div>
+
+      <div id="adminTabs" class="tab-bar" style="display:none;">
+        <button class="tab-btn active" id="tabJobs" onclick="switchTab('jobs')">Sites</button>
+        <button class="tab-btn" id="tabSchedule" onclick="switchTab('schedule')">Schedule</button>
+        <button class="tab-btn" id="tabHistory" onclick="switchTab('history')">History</button>
+        <button class="tab-btn" id="tabUsers" onclick="switchTab('users')">Users</button>
+      </div>
+
+      <!-- JOBS TAB -->
+      <div id="panelJobs" style="display:none; flex-direction:column; gap:10px;">
+        <div class="section-title">Add Job Site</div>
+        <div class="location-options">
+          <button class="btn btn-blue btn-sm" onclick="showLocationMode('Search')">🔍 Search</button>
+          <button class="btn btn-teal btn-sm" onclick="showLocationMode('Coords')">📐 Coords</button>
+          <button class="btn btn-yellow btn-sm" onclick="showLocationMode('Pin')">📍 Drop Pin</button>
+        </div>
+
+        <div id="locSearch" style="display:none; flex-direction:column; gap:6px;">
+          <div class="job-search-wrap">
+            <input type="text" id="jobSearch" placeholder="Search address or cross streets..."
+              oninput="onJobSearchInput()" onkeydown="if(event.key==='Enter')triggerJobSearch()" autocomplete="off" />
+            <div class="autocomplete-list" id="jobAutocomplete" style="display:none;"></div>
+          </div>
+        </div>
+
+        <div id="locCoords" style="display:none; flex-direction:column; gap:6px;">
+          <input type="text" id="jobCoords" placeholder="Paste coordinates: 36.1699, -115.1398" />
+          <button class="btn btn-teal btn-sm" onclick="placeFromCoords()">Place Pin from Coordinates</button>
+        </div>
+
+        <div id="locPin" style="display:none; flex-direction:column; gap:6px;">
+          <p class="hint-text" id="dropPinHint">Click the button then click anywhere on the map.</p>
+          <button class="btn btn-yellow btn-sm" id="dropPinBtn" onclick="toggleDropPin()">📍 Click Map to Drop Pin</button>
+        </div>
+
+        <div id="pinControls" style="display:none; flex-direction:column; gap:6px;">
+          <p class="hint-text" id="pinHint" style="color:#ffcc44;">📍 Pin placed. Drag to fine tune or test directions.</p>
+          <div class="pin-controls">
+            <button class="btn btn-green btn-sm" onclick="testDirections()">🧭 Test Directions</button>
+            <button class="btn btn-teal btn-sm" id="movePinBtn" onclick="toggleMovePin()">🎯 Move Pin</button>
+            <button class="btn btn-red btn-sm" onclick="cancelPin()">✕ Cancel</button>
+          </div>
+        </div>
+
+        <input type="text" id="jobNumber" placeholder="Job Number (e.g. 504)" />
+        <textarea id="foremenNotes" placeholder="Foreman Notes"></textarea>
+        <textarea id="hazardNotes" placeholder="Hazard Notes (visible to foreman)"></textarea>
+        <textarea id="adminNotes" placeholder="Admin Only Notes"></textarea>
+        <button class="btn btn-blue" onclick="addJobSite()">Save Job Site</button>
+
+        <div id="drawSection" style="display:none; flex-direction:column; gap:6px;">
+          <div class="section-title">Job Boundary (Optional)</div>
+          <p class="hint-text" style="color:#ffcc44;">✅ Job saved. Draw the boundary on the map now, or skip and do it later by clicking the job in the list.</p>
+          <button class="btn btn-orange" id="drawBtn" onclick="toggleDrawing()">✏️ Draw Boundary</button>
+          <p class="hint-text" id="drawHint">Click map to trace the boundary. Click Finish when done.</p>
+        </div>
+
+        <div class="section-title">All Job Sites</div>
+        <div class="job-list" id="adminJobList"><div class="loading">Loading...</div></div>
+      </div>
+
+      <!-- SCHEDULE TAB -->
+      <div id="panelSchedule" style="display:none; flex-direction:column; gap:10px;">
+        <div class="section-title">Schedule a Cleanup</div>
+        <input type="text" id="schedJobNumber" placeholder="Job Number (must exist)" />
+        <input type="date" id="schedDate" />
+        <input type="number" id="schedCubicYards" placeholder="Estimated Cubic Yards" />
+        <input type="text" id="schedPhotoLink" placeholder="Google Photos album link" />
+        <p class="hint-text">Create a shared Google Photos album and paste the link here.</p>
+        <button class="btn btn-green" onclick="addSchedule()">Schedule Cleanup</button>
+        <div class="section-title">Upcoming Jobs</div>
+        <div class="job-list" id="adminScheduleList"><div class="loading">Loading...</div></div>
+      </div>
+
+      <!-- HISTORY TAB -->
+      <div id="panelHistory" style="display:none; flex-direction:column; gap:10px;">
+        <div class="section-title">Job History</div>
+        <div style="display:flex; gap:6px;">
+          <button class="tab-btn active" id="histAll" onclick="filterHistory('all')" style="font-size:10px;">All</button>
+          <button class="tab-btn" id="histPartial" onclick="filterHistory('partial')" style="font-size:10px;">Incomplete</button>
+          <button class="tab-btn" id="histCompleted" onclick="filterHistory('completed')" style="font-size:10px;">Completed</button>
+        </div>
+        <div class="job-list" id="historyList"><div class="loading">Loading...</div></div>
+      </div>
+
+      <!-- USERS TAB -->
+      <div id="panelUsers" style="display:none; flex-direction:column; gap:10px;">
+        <div class="section-title">Create Account</div>
+        <input type="text" id="newUsername" placeholder="Username" />
+        <input type="password" id="newPassword" placeholder="Password" />
+        <select id="newRole">
+          <option value="field">Field</option>
+          <option value="admin">Admin</option>
+        </select>
+        <button class="btn btn-blue" onclick="createUser()">Create Account</button>
+        <div class="section-title">Existing Users</div>
+        <div id="userList"><div class="loading">Loading...</div></div>
+      </div>
+
+      <!-- FIELD PANEL -->
+      <div id="panelField" style="display:none; flex-direction:column; gap:10px;">
+        <div class="section-title">Today's Jobs</div>
+        <div class="job-list" id="fieldTodayList"></div>
+        <div class="section-title" style="margin-top:4px;">Tomorrow's Jobs</div>
+        <div class="job-list" id="fieldTomorrowList"></div>
+      </div>
+    </div>
+    <div id="map"></div>
+  </div>
+</div>
+
+<script>
+  const SUPABASE_URL = 'https://ucyxhiaogpnrjtfivwcr.supabase.co';
+  const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InVjeXhoaWFvZ3Bucmp0Zml2d2NyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAyNDAwMDcsImV4cCI6MjA5NTgxNjAwN30.V4s0bfIwnQHLGDFlSOH44Udw4rWdNakfSQpVAygbafw';
+  const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+  let map, currentUser, currentRole, isPreviewing = false;
+  let jobs = [], schedules = [], markers = [];
+  let drawing = false, drawingPoints = [], drawingPolyline = null, drawingPolygons = {};
+  let markingUp = false, markupMarkers = {}, currentMarkupScheduleId = null;
+  let currentDrawingJobId = null, activeMapListener = null;
+  let movingPin = false, droppingPin = false, pinMarker = null;
+  let pendingLat = null, pendingLng = null;
+  let autocompleteService = null, activeTab = 'jobs';
+  let globalSearchTimeout = null, jobSearchTimeout = null;
+  let historyFilter = 'all';
+  let propertyLayerActive = false, propertyInfoWindow = null, parcelPolygon = null;
+  let jurisdictionLayerActive = false, jurisdictionPolygons = [], jurisdictionContacts = {};
+  const AGENCY_MAP = {
+    'Las Vegas':       { name: 'Las Vegas Metropolitan Police (LVMPD)', color: '#2255cc' },
+    'Henderson':       { name: 'Henderson Police Department',           color: '#22aa44' },
+    'North Las Vegas': { name: 'North Las Vegas Police Department',     color: '#8822cc' },
+    'Boulder City':    { name: 'Boulder City Police Department',        color: '#cc7722' },
+    'Mesquite':        { name: 'Mesquite Police Department',            color: '#cc2277' }
+  };
+
+  const mapStyles = [
+    { elementType: 'geometry', stylers: [{ color: '#242f3e' }] },
+    { elementType: 'labels.text.stroke', stylers: [{ color: '#242f3e' }] },
+    { elementType: 'labels.text.fill', stylers: [{ color: '#746855' }] },
+    { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+    { featureType: 'poi.park', elementType: 'geometry', stylers: [{ color: '#263c3f' }, { visibility: 'on' }] },
+    { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+    { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#38414e' }] },
+    { featureType: 'road', elementType: 'labels.text.fill', stylers: [{ color: '#9ca5b3' }] },
+    { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#746855' }] },
+    { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#17263c' }] },
+    { featureType: 'water', elementType: 'labels.text.fill', stylers: [{ color: '#515c6d' }] }
+  ];
+
+  // ─── LOGIN ─────────────────────────────────────────────────────
+  async function doLogin() {
+    const username = document.getElementById('loginUser').value.trim().toLowerCase();
+    const password = document.getElementById('loginPass').value;
+    const { data } = await sb.from('users').select('*').eq('username', username).eq('password', password).single();
+    if (data) {
+      currentUser = data.username; currentRole = data.role;
+      document.getElementById('loginScreen').style.display = 'none';
+      document.getElementById('appScreen').style.display = 'flex';
+      document.getElementById('userLabel').textContent = currentUser;
+      await loadData();
+      initView();
+    } else {
+      document.getElementById('loginError').style.display = 'block';
+    }
+  }
+
+  document.addEventListener('keydown', function(e) { if (e.key === 'Enter') doLogin(); });
+
+  function doLogout() {
+    currentUser = null; currentRole = null; isPreviewing = false;
+    stopPropertyLayer();
+    jurisdictionPolygons.forEach(function(p) { p.setMap(null); });
+    jurisdictionPolygons = []; jurisdictionLayerActive = false;
+    document.getElementById('layerControls').style.display = 'none';
+    document.getElementById('loginUser').value = '';
+    document.getElementById('loginPass').value = '';
+    document.getElementById('loginError').style.display = 'none';
+    document.getElementById('appScreen').style.display = 'none';
+    document.getElementById('loginScreen').style.display = 'flex';
+  }
+
+  // ─── LOAD DATA ─────────────────────────────────────────────────
+  async function loadData() {
+    const { data: jobData } = await sb.from('job_sites').select('*').order('created_at');
+    if (jobData) {
+      jobs = jobData;
+      jobs.forEach(function(job) {
+        addMarker(job);
+        if (job.boundary && job.boundary.length > 2) drawBoundaryPolygon(job);
+      });
+    }
+    const { data: schedData } = await sb.from('schedules').select('*').order('scheduled_date');
+    if (schedData) schedules = schedData;
+  }
+
+  // ─── VIEW ──────────────────────────────────────────────────────
+  function initView() {
+    if (currentRole === 'admin') {
+      document.getElementById('previewToggleWrap').style.display = 'block';
+      document.getElementById('layerControls').style.display = 'flex';
+      document.getElementById('adminTabs').style.display = 'flex';
+      switchTab('jobs');
+    } else {
+      showFieldPanel();
+    }
+  }
+
+  function togglePreview() {
+    isPreviewing = !isPreviewing;
+    const btn = document.getElementById('previewBtn');
+    const banner = document.getElementById('previewBanner');
+    if (isPreviewing) {
+      btn.textContent = '🔴 Exit Preview'; banner.classList.add('visible');
+      document.getElementById('adminTabs').style.display = 'none';
+      ['panelJobs','panelSchedule','panelHistory','panelUsers'].forEach(function(id) { document.getElementById(id).style.display = 'none'; });
+      showFieldPanel();
+    } else {
+      btn.textContent = '👁️ Preview Field View'; banner.classList.remove('visible');
+      document.getElementById('adminTabs').style.display = 'flex';
+      document.getElementById('panelField').style.display = 'none';
+      switchTab(activeTab);
+    }
+  }
+
+  function showFieldPanel() {
+    document.getElementById('panelField').style.display = 'flex';
+    renderFieldPanel();
+  }
+
+  function switchTab(tab) {
+    activeTab = tab;
+    ['Jobs','Schedule','History','Users'].forEach(function(t) {
+      const btn = document.getElementById('tab' + t);
+      const panel = document.getElementById('panel' + t);
+      if (btn) btn.classList.toggle('active', t.toLowerCase() === tab);
+      if (panel) panel.style.display = t.toLowerCase() === tab ? 'flex' : 'none';
+    });
+    if (tab === 'jobs') renderAdminJobList();
+    if (tab === 'schedule') renderScheduleList();
+    if (tab === 'history') renderHistoryList();
+    if (tab === 'users') renderUserList();
+  }
+
+  // ─── MODAL ─────────────────────────────────────────────────────
+  function showModal(html) {
+    document.getElementById('modalBox').innerHTML = html;
+    document.getElementById('modalOverlay').style.display = 'flex';
+  }
+
+  function closeModal() {
+    document.getElementById('modalOverlay').style.display = 'none';
+    document.getElementById('modalBox').innerHTML = '';
+  }
+
+  // ─── GLOBAL SEARCH ─────────────────────────────────────────────
+  function onGlobalSearchInput() {
+    const val = document.getElementById('globalSearch').value.trim();
+    const list = document.getElementById('globalAutocomplete');
+    if (!val || val.length < 3) { list.style.display = 'none'; return; }
+    clearTimeout(globalSearchTimeout);
+    globalSearchTimeout = setTimeout(function() {
+      autocompleteService.getPlacePredictions({ input: val, location: new google.maps.LatLng(36.1699, -115.1398), radius: 80000 }, function(predictions, status) {
+        list.innerHTML = '';
+        if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) { list.style.display = 'none'; return; }
+        predictions.slice(0, 5).forEach(function(pred) {
+          const item = document.createElement('div');
+          item.className = 'autocomplete-item';
+          item.textContent = pred.description;
+          item.onclick = function() { selectGlobalPlace(pred.place_id, pred.description); };
+          list.appendChild(item);
+        });
+        list.style.display = 'block';
+      });
+    }, 300);
+  }
+
+  function triggerGlobalSearch() {
+    const val = document.getElementById('globalSearch').value.trim();
+    if (!val) return;
+    document.getElementById('globalAutocomplete').style.display = 'none';
+    const geocoder = new google.maps.Geocoder();
+    geocoder.geocode({ address: val + ', Las Vegas, NV' }, function(results, status) {
+      if (status === 'OK') { map.panTo(results[0].geometry.location); map.setZoom(17); }
+      else { alert('Location not found. Try being more specific.'); }
+    });
+  }
+
+  function selectGlobalPlace(placeId, description) {
+    document.getElementById('globalAutocomplete').style.display = 'none';
+    document.getElementById('globalSearch').value = description;
+    const geocoder = new google.maps.Geocoder();
+    geocoder.geocode({ placeId: placeId }, function(results, status) {
+      if (status === 'OK') { map.panTo(results[0].geometry.location); map.setZoom(17); }
+    });
+  }
+
+  // ─── LOCATION MODES ────────────────────────────────────────────
+  function showLocationMode(mode) {
+    ['Search','Coords','Pin'].forEach(function(m) { document.getElementById('loc' + m).style.display = 'none'; });
+    document.getElementById('loc' + mode).style.display = 'flex';
+    cancelPin(); stopAllMapModes();
+  }
+
+  function onJobSearchInput() {
+    const val = document.getElementById('jobSearch').value.trim();
+    const list = document.getElementById('jobAutocomplete');
+    if (!val || val.length < 3) { list.style.display = 'none'; return; }
+    clearTimeout(jobSearchTimeout);
+    jobSearchTimeout = setTimeout(function() {
+      autocompleteService.getPlacePredictions({ input: val, location: new google.maps.LatLng(36.1699, -115.1398), radius: 80000 }, function(predictions, status) {
+        list.innerHTML = '';
+        if (status !== google.maps.places.PlacesServiceStatus.OK || !predictions) { list.style.display = 'none'; return; }
+        predictions.slice(0, 5).forEach(function(pred) {
+          const item = document.createElement('div');
+          item.className = 'autocomplete-item';
+          item.textContent = pred.description;
+          item.onclick = function() {
+            list.style.display = 'none';
+            document.getElementById('jobSearch').value = pred.description;
+            const geocoder = new google.maps.Geocoder();
+            geocoder.geocode({ placeId: pred.place_id }, function(results, status) {
+              if (status === 'OK') {
+                const loc = results[0].geometry.location;
+                pendingLat = loc.lat(); pendingLng = loc.lng();
+                placePendingPin(pendingLat, pendingLng);
+                map.panTo(loc); map.setZoom(17);
+              }
+            });
+          };
+          list.appendChild(item);
+        });
+        list.style.display = 'block';
+      });
+    }, 300);
+  }
+
+  function triggerJobSearch() {
+    const val = document.getElementById('jobSearch').value.trim();
+    if (!val) return;
+    document.getElementById('jobAutocomplete').style.display = 'none';
+    const geocoder = new google.maps.Geocoder();
+    geocoder.geocode({ address: val + ', Las Vegas, NV' }, function(results, status) {
+      if (status === 'OK') {
+        const loc = results[0].geometry.location;
+        pendingLat = loc.lat(); pendingLng = loc.lng();
+        placePendingPin(pendingLat, pendingLng);
+        map.panTo(loc); map.setZoom(17);
+      } else { alert('Location not found. Try being more specific.'); }
+    });
+  }
+
+  function placeFromCoords() {
+    const val = document.getElementById('jobCoords').value.trim();
+    const match = val.match(/^(-?\d+\.?\d*)[,\s]+(-?\d+\.?\d*)$/);
+    if (!match) { alert('Invalid coordinates. Use format: 36.1699, -115.1398'); return; }
+    const lat = parseFloat(match[1]), lng = parseFloat(match[2]);
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) { alert('Coordinates out of range.'); return; }
+    pendingLat = lat; pendingLng = lng;
+    placePendingPin(lat, lng);
+    map.panTo({ lat, lng }); map.setZoom(17);
+  }
+
+  function toggleDropPin() {
+    if (droppingPin) { stopDropPin(); return; }
+    droppingPin = true;
+    document.getElementById('dropPinBtn').textContent = '✅ Now Click the Map';
+    document.getElementById('dropPinBtn').classList.add('active');
+    document.getElementById('dropPinHint').textContent = 'Click anywhere on the map to place the meet point pin.';
+    map.setOptions({ draggableCursor: 'crosshair' });
+    setMapListener(function(e) {
+      pendingLat = e.latLng.lat(); pendingLng = e.latLng.lng();
+      placePendingPin(pendingLat, pendingLng);
+      stopDropPin();
+    });
+  }
+
+  function stopDropPin() {
+    droppingPin = false;
+    document.getElementById('dropPinBtn').textContent = '📍 Click Map to Drop Pin';
+    document.getElementById('dropPinBtn').classList.remove('active');
+    document.getElementById('dropPinHint').textContent = 'Click the button then click anywhere on the map.';
+    map.setOptions({ draggableCursor: null });
+    clearMapListener();
+  }
+
+  function placePendingPin(lat, lng) {
+    if (pinMarker) pinMarker.setMap(null);
+    pinMarker = new google.maps.Marker({
+      position: { lat, lng }, map, draggable: true, zIndex: 999,
+      title: 'Meet Point — drag to adjust',
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 14, fillColor: '#ffcc00', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 3 }
+    });
+    pinMarker.addListener('dragend', function(e) { pendingLat = e.latLng.lat(); pendingLng = e.latLng.lng(); });
+    document.getElementById('pinControls').style.display = 'flex';
+  }
+
+  function testDirections() {
+    if (!pendingLat || !pendingLng) return;
+    window.open('https://www.google.com/maps/dir/?api=1&destination=' + pendingLat + ',' + pendingLng, '_blank');
+  }
+
+  function toggleMovePin() {
+    if (movingPin) { stopMovePin(); return; }
+    movingPin = true;
+    document.getElementById('movePinBtn').textContent = '✅ Done Moving';
+    document.getElementById('movePinBtn').classList.add('active');
+    document.getElementById('pinHint').textContent = 'Click the exact meet point on the map.';
+    map.setOptions({ draggableCursor: 'crosshair' });
+    setMapListener(function(e) {
+      pendingLat = e.latLng.lat(); pendingLng = e.latLng.lng();
+      placePendingPin(pendingLat, pendingLng);
+      stopMovePin();
+    });
+  }
+
+  function stopMovePin() {
+    movingPin = false;
+    document.getElementById('movePinBtn').textContent = '🎯 Move Pin';
+    document.getElementById('movePinBtn').classList.remove('active');
+    document.getElementById('pinHint').textContent = '📍 Pin placed. Drag to fine tune or test directions before saving.';
+    map.setOptions({ draggableCursor: null });
+    clearMapListener();
+  }
+
+  function cancelPin() {
+    if (pinMarker) { pinMarker.setMap(null); pinMarker = null; }
+    pendingLat = null; pendingLng = null;
+    document.getElementById('pinControls').style.display = 'none';
+    if (movingPin) stopMovePin();
+    if (droppingPin) stopDropPin();
+  }
+
+  function setMapListener(fn) { clearMapListener(); activeMapListener = map.addListener('click', fn); }
+  function clearMapListener() { if (activeMapListener) { google.maps.event.removeListener(activeMapListener); activeMapListener = null; } }
+
+  function stopAllMapModes() {
+    if (movingPin) stopMovePin();
+    if (droppingPin) stopDropPin();
+    if (drawing) finishDrawing();
+    if (markingUp) stopMarkup();
+    stopPropertyLayer();
+    clearMapListener();
+  }
+
+  // ─── JOB SITES ─────────────────────────────────────────────────
+  async function addJobSite() {
+    const jobNumber = document.getElementById('jobNumber').value.trim();
+    if (!jobNumber) { alert('Please enter a job number.'); return; }
+    if (!pendingLat || !pendingLng) { alert('Please set a meet point location first.'); return; }
+    if (jobs.find(function(j) { return j.job_number === jobNumber; })) { alert('Job ' + jobNumber + ' already exists.'); return; }
+    const jobSearch = document.getElementById('jobSearch');
+    const jobCoords = document.getElementById('jobCoords');
+    const jobAddress = (jobSearch && jobSearch.value.trim()) || (jobCoords && jobCoords.value.trim()) || (pendingLat.toFixed(6) + ', ' + pendingLng.toFixed(6));
+    const { data, error } = await sb.from('job_sites').insert({
+      job_number: jobNumber, job_address: jobAddress, lat: pendingLat, lng: pendingLng,
+      foreman_notes: document.getElementById('foremenNotes').value.trim(),
+      hazard_notes: document.getElementById('hazardNotes').value.trim(),
+      admin_notes: document.getElementById('adminNotes').value.trim()
+    }).select().single();
+    if (data) {
+      jobs.push(data);
+      if (pinMarker) { pinMarker.setMap(null); pinMarker = null; }
+      addMarker(data); renderAdminJobList(); clearJobForm();
+      map.panTo({ lat: data.lat, lng: data.lng }); map.setZoom(16);
+      currentDrawingJobId = data.id;
+      document.getElementById('drawSection').style.display = 'flex';
+      pendingLat = null; pendingLng = null;
+    } else { alert('Error saving: ' + error.message); }
+  }
+
+  // ─── SCHEDULE ──────────────────────────────────────────────────
+  async function addSchedule() {
+    const jobNumber = document.getElementById('schedJobNumber').value.trim();
+    const date = document.getElementById('schedDate').value;
+    const cubicYards = document.getElementById('schedCubicYards').value.trim();
+    const photoLink = document.getElementById('schedPhotoLink').value.trim();
+    if (!jobNumber || !date) { alert('Please enter a job number and date.'); return; }
+    const job = jobs.find(function(j) { return j.job_number === jobNumber; });
+    if (!job) { alert('Job ' + jobNumber + ' not found. Add it as a job site first.'); return; }
+    const { data, error } = await sb.from('schedules').insert({
+      job_number: jobNumber, job_id: job.id, scheduled_date: date,
+      cubic_yards: cubicYards, photo_link: photoLink,
+      encampment_markups: [], status: 'scheduled',
+      actual_cubic_yards: null, completion_notes: null
+    }).select().single();
+    if (data) {
+      schedules.push(data);
+      schedules.sort(function(a, b) { return a.scheduled_date.localeCompare(b.scheduled_date); });
+      renderScheduleList(); renderFieldPanel(); clearScheduleForm();
+    } else { alert('Error saving: ' + error.message); }
+  }
+
+  // ─── SCHEDULE FROM HISTORY ─────────────────────────────────────
+  function scheduleFromHistory(jobNumber) {
+    closeModal();
+    showModal(
+      '<h2>📅 Schedule Job ' + jobNumber + '</h2>' +
+      '<p class="hint-text">Fresh cleanup event — no encampment markers carried over.</p>' +
+      '<input type="date" id="reschedDate" />' +
+      '<input type="number" id="reschedCubicYards" placeholder="Estimated Cubic Yards" />' +
+      '<input type="text" id="reschedPhotoLink" placeholder="Google Photos album link" />' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-green" onclick="confirmReschedule(\'' + jobNumber + '\')">Schedule</button>' +
+      '<button class="btn btn-red" onclick="closeModal()">Cancel</button>' +
+      '</div>'
+    );
+  }
+
+  async function confirmReschedule(jobNumber) {
+    const date = document.getElementById('reschedDate').value;
+    const cubicYards = document.getElementById('reschedCubicYards').value.trim();
+    const photoLink = document.getElementById('reschedPhotoLink').value.trim();
+    if (!date) { alert('Please select a date.'); return; }
+    const job = jobs.find(function(j) { return j.job_number === jobNumber; });
+    if (!job) { alert('Job not found.'); return; }
+    const { data, error } = await sb.from('schedules').insert({
+      job_number: jobNumber, job_id: job.id, scheduled_date: date,
+      cubic_yards: cubicYards, photo_link: photoLink,
+      encampment_markups: [], status: 'scheduled',
+      actual_cubic_yards: null, completion_notes: null
+    }).select().single();
+    if (data) {
+      schedules.push(data);
+      schedules.sort(function(a, b) { return a.scheduled_date.localeCompare(b.scheduled_date); });
+      closeModal();
+      renderScheduleList(); renderFieldPanel(); renderHistoryList();
+      alert('Job ' + jobNumber + ' scheduled for ' + formatDate(date));
+    } else { alert('Error: ' + error.message); }
+  }
+
+  // ─── FIELD REPORTS ─────────────────────────────────────────────
+  function reportIssue(schedId) {
+    showModal(
+      '<h2>🚨 Report Issue</h2>' +
+      '<p class="hint-text" style="margin-bottom:8px;">Describe what happened — your admin will see this immediately.</p>' +
+      '<textarea id="issueNote" placeholder="e.g. Site inaccessible, unexpected hazard, ran out of time..." style="min-height:80px;"></textarea>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-orange" onclick="confirmReportIssue(\'' + schedId + '\')">Send Report</button>' +
+      '<button class="btn btn-red" onclick="closeModal()">Cancel</button>' +
+      '</div>'
+    );
+  }
+
+  async function confirmReportIssue(schedId) {
+    const note = document.getElementById('issueNote').value.trim();
+    if (!note) { alert('Please describe the issue.'); return; }
+    const timestamp = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const report = '[Field Report ' + timestamp + '] ' + note;
+    const { error } = await sb.from('schedules').update({ completion_notes: report, status: 'flagged' }).eq('id', schedId);
+    if (error) { alert('Error sending report: ' + error.message); return; }
+    const sched = schedules.find(function(s) { return s.id === schedId; });
+    if (sched) { sched.completion_notes = report; sched.status = 'flagged'; }
+    closeModal();
+    renderFieldPanel();
+    alert('Report sent to admin.');
+  }
+
+  // ─── STATUS ────────────────────────────────────────────────────
+  function markComplete(schedId) {
+    showModal(
+      '<h2>✅ Mark Job Complete</h2>' +
+      '<input type="number" id="actualCubicYards" placeholder="Actual Cubic Yards Removed" />' +
+      '<textarea id="completionNotes" placeholder="Completion notes (optional)"></textarea>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-green" onclick="confirmComplete(\'' + schedId + '\')">Mark Complete</button>' +
+      '<button class="btn btn-red" onclick="closeModal()">Cancel</button>' +
+      '</div>'
+    );
+  }
+
+  async function confirmComplete(schedId) {
+    const actual = document.getElementById('actualCubicYards').value.trim();
+    const notes = document.getElementById('completionNotes').value.trim();
+    const { error } = await sb.from('schedules').update({ status: 'completed', actual_cubic_yards: actual, completion_notes: notes }).eq('id', schedId);
+    if (!error) {
+      const sched = schedules.find(function(s) { return s.id === schedId; });
+      if (sched) { sched.status = 'completed'; sched.actual_cubic_yards = actual; sched.completion_notes = notes; }
+      closeModal(); renderScheduleList(); renderHistoryList();
+    } else { alert('Error: ' + error.message); }
+  }
+
+  function markPartial(schedId) {
+    showModal(
+      '<h2>⚠️ Mark Job Partial</h2>' +
+      '<input type="number" id="partialCubicYards" placeholder="Cubic Yards Actually Removed" />' +
+      '<textarea id="partialNotes" placeholder="What was left? What needs follow up?"></textarea>' +
+      '<p class="hint-text" style="margin-top:4px;">Clear encampment markers that were cleaned up?</p>' +
+      '<div class="modal-actions" style="margin-top:4px;">' +
+      '<button class="btn btn-orange" onclick="confirmPartial(\'' + schedId + '\', true)">Partial & Clear Markers</button>' +
+      '</div>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-purple" onclick="confirmPartial(\'' + schedId + '\', false)">Partial & Keep Markers</button>' +
+      '</div>' +
+      '<button class="btn btn-red btn-sm" onclick="closeModal()" style="margin-top:4px;">Cancel</button>'
+    );
+  }
+
+  async function confirmPartial(schedId, clearMarkers) {
+    const actual = document.getElementById('partialCubicYards').value.trim();
+    const notes = document.getElementById('partialNotes').value.trim();
+    const updateData = { status: 'partial', actual_cubic_yards: actual, completion_notes: notes };
+    if (clearMarkers) updateData.encampment_markups = [];
+    const { error } = await sb.from('schedules').update(updateData).eq('id', schedId);
+    if (!error) {
+      const sched = schedules.find(function(s) { return s.id === schedId; });
+      if (sched) {
+        sched.status = 'partial'; sched.actual_cubic_yards = actual; sched.completion_notes = notes;
+        if (clearMarkers) {
+          sched.encampment_markups = [];
+          if (markupMarkers[schedId]) { markupMarkers[schedId].forEach(function(m) { m.setMap(null); }); markupMarkers[schedId] = []; }
+        }
+      }
+      closeModal(); renderScheduleList(); renderHistoryList();
+    } else { alert('Error: ' + error.message); }
+  }
+
+  // ─── ENCAMPMENT MARKUP ─────────────────────────────────────────
+  function toggleMarkupForSchedule(schedId) {
+    if (markingUp && currentMarkupScheduleId === schedId) { stopMarkup(); return; }
+    if (markingUp) stopMarkup();
+    startMarkupForSchedule(schedId);
+  }
+
+  function startMarkupForSchedule(schedId) {
+    const sched = schedules.find(function(s) { return s.id === schedId; });
+    const job = sched ? jobs.find(function(j) { return j.job_number === sched.job_number; }) : null;
+    if (!sched || !job) return;
+    stopAllMapModes();
+    currentMarkupScheduleId = schedId;
+    if (!markupMarkers[schedId]) markupMarkers[schedId] = [];
+    loadMarkupMarkersForSchedule(schedId);
+    map.panTo({ lat: job.lat, lng: job.lng }); map.setZoom(16);
+    markingUp = true;
+    map.setOptions({ draggableCursor: 'crosshair' });
+    const btn = document.getElementById('markupBtn_' + schedId);
+    const hint = document.getElementById('markupHint_' + schedId);
+    if (btn) { btn.textContent = '✅ Stop Marking'; btn.style.background = '#8800dd'; }
+    if (hint) hint.textContent = 'Click map to place encampment markers.';
+    setMapListener(async function(e) {
+      if (!markingUp) return;
+      const marker = new google.maps.Marker({
+        position: e.latLng, map, zIndex: 100,
+        icon: { path: 'M 0,-10 L 8,6 L -8,6 Z', fillColor: '#ffcc00', fillOpacity: 0.95, strokeColor: '#333333', strokeWeight: 1.5, scale: 1.2 }
+      });
+      if (!markupMarkers[schedId]) markupMarkers[schedId] = [];
+      markupMarkers[schedId].push(marker);
+      const currentMarkups = sched.encampment_markups || [];
+      const pts = currentMarkups.concat([{ lat: e.latLng.lat(), lng: e.latLng.lng() }]);
+      sched.encampment_markups = pts;
+      const { error } = await sb.from('schedules').update({ encampment_markups: pts }).eq('id', schedId);
+      if (error) console.error('Markup save error:', error.message);
+      updateMarkupCount(schedId, pts.length);
+    });
+  }
+
+  function stopMarkup() {
+    markingUp = false;
+    map.setOptions({ draggableCursor: null });
+    clearMapListener();
+    if (currentMarkupScheduleId) {
+      const btn = document.getElementById('markupBtn_' + currentMarkupScheduleId);
+      const hint = document.getElementById('markupHint_' + currentMarkupScheduleId);
+      if (btn) { btn.textContent = '📍 Mark Encampments'; btn.style.background = '#6a2abb'; }
+      if (hint) hint.textContent = 'Click to mark encampment areas for this cleanup.';
+    }
+  }
+
+  function clearMarkupsForSchedule(schedId) {
+    if (!confirm('Clear all encampment markers for this cleanup?')) return;
+    if (markupMarkers[schedId]) { markupMarkers[schedId].forEach(function(m) { m.setMap(null); }); markupMarkers[schedId] = []; }
+    const sched = schedules.find(function(s) { return s.id === schedId; });
+    if (sched) { sched.encampment_markups = []; sb.from('schedules').update({ encampment_markups: [] }).eq('id', schedId); }
+    updateMarkupCount(schedId, 0);
+  }
+
+  function loadMarkupMarkersForSchedule(schedId) {
+    if (markupMarkers[schedId]) { markupMarkers[schedId].forEach(function(m) { m.setMap(null); }); markupMarkers[schedId] = []; }
+    const sched = schedules.find(function(s) { return s.id === schedId; });
+    if (sched && sched.encampment_markups && sched.encampment_markups.length) {
+      markupMarkers[schedId] = sched.encampment_markups.map(function(pt) {
+        return new google.maps.Marker({
+          position: pt, map, zIndex: 100,
+          icon: { path: 'M 0,-10 L 8,6 L -8,6 Z', fillColor: '#ffcc00', fillOpacity: 0.95, strokeColor: '#333333', strokeWeight: 1.5, scale: 1.2 }
+        });
+      });
+    }
+  }
+
+  function updateMarkupCount(schedId, count) {
+    const el = document.getElementById('markupCount_' + schedId);
+    if (el) el.textContent = count > 0 ? '📍 ' + count + ' encampment markers' : '';
+  }
+
+  function hideAllMarkupMarkers() {
+    Object.keys(markupMarkers).forEach(function(schedId) {
+      if (markupMarkers[schedId]) markupMarkers[schedId].forEach(function(m) { m.setMap(null); });
+    });
+    markupMarkers = {};
+  }
+
+  // ─── BOUNDARY ──────────────────────────────────────────────────
+  function toggleDrawing() { drawing ? finishDrawing() : startDrawing(); }
+
+  function startDrawing() {
+    stopAllMapModes(); drawing = true; drawingPoints = [];
+    document.getElementById('drawBtn').classList.add('active');
+    document.getElementById('drawBtn').textContent = '✅ Finish Boundary';
+    document.getElementById('drawHint').textContent = 'Click map to trace. Click Finish when done.';
+    map.setOptions({ draggableCursor: 'crosshair' });
+    if (drawingPolyline) drawingPolyline.setMap(null);
+    drawingPolyline = new google.maps.Polyline({ strokeColor: '#ff9900', strokeOpacity: 1, strokeWeight: 3, map });
+    setMapListener(function(e) { if (!drawing) return; drawingPoints.push(e.latLng); drawingPolyline.setPath(drawingPoints); });
+  }
+
+  async function finishDrawing() {
+    drawing = false;
+    document.getElementById('drawBtn').classList.remove('active');
+    document.getElementById('drawBtn').textContent = '✏️ Redraw Boundary';
+    document.getElementById('drawHint').textContent = 'Boundary saved. Click Redraw to change it.';
+    map.setOptions({ draggableCursor: null }); clearMapListener();
+    if (drawingPoints.length > 2) {
+      if (drawingPolyline) drawingPolyline.setMap(null);
+      if (drawingPolygons[currentDrawingJobId]) drawingPolygons[currentDrawingJobId].setMap(null);
+      drawingPolygons[currentDrawingJobId] = new google.maps.Polygon({
+        paths: drawingPoints, strokeColor: '#ff9900', strokeOpacity: 1,
+        strokeWeight: 2, fillColor: '#ff9900', fillOpacity: 0.15, map, clickable: false
+      });
+      const boundaryData = drawingPoints.map(function(p) { return { lat: p.lat(), lng: p.lng() }; });
+      await sb.from('job_sites').update({ boundary: boundaryData }).eq('id', currentDrawingJobId);
+      const job = jobs.find(function(j) { return j.id === currentDrawingJobId; });
+      if (job) job.boundary = boundaryData;
+    }
+  }
+
+  function drawBoundaryPolygon(job) {
+    if (!job.boundary || job.boundary.length < 3) return;
+    if (drawingPolygons[job.id]) drawingPolygons[job.id].setMap(null);
+    drawingPolygons[job.id] = new google.maps.Polygon({
+      paths: job.boundary, strokeColor: '#ff9900', strokeOpacity: 1,
+      strokeWeight: 2, fillColor: '#ff9900', fillOpacity: 0.15, map, clickable: false
+    });
+  }
+
+  // ─── MARKERS ───────────────────────────────────────────────────
+  function addMarker(job) {
+    const hasHazard = job.hazard_notes && job.hazard_notes.length > 0;
+    const marker = new google.maps.Marker({
+      position: { lat: job.lat, lng: job.lng }, map, title: 'Job ' + job.job_number, zIndex: 50,
+      icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: hasHazard ? '#ff4444' : '#2a6ebb', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 2 }
+    });
+    const infoWindow = new google.maps.InfoWindow({ content: buildInfoWindow(job) });
+    marker.addListener('click', function() {
+      hideAllMarkupMarkers();
+      infoWindow.setContent(buildInfoWindow(job));
+      infoWindow.open(map, marker);
+    });
+    markers.push({ jobId: job.id, marker, infoWindow });
+  }
+
+  function buildInfoWindow(job) {
+    const isAdmin = currentRole === 'admin' && !isPreviewing;
+    const hasHazard = job.hazard_notes && job.hazard_notes.length > 0;
+    const jobSchedules = schedules.filter(function(s) { return s.job_number === job.job_number; });
+    const upcoming = jobSchedules.filter(function(s) { return s.status === 'scheduled'; });
+    const latest = upcoming.length ? upcoming[upcoming.length - 1] : (jobSchedules.length ? jobSchedules[jobSchedules.length - 1] : null);
+    let html = '<div style="background:#2a2a2a;color:white;padding:12px;border-radius:6px;min-width:220px;font-family:Arial,sans-serif;">';
+    html += '<div style="font-weight:bold;font-size:14px;margin-bottom:6px;">Job ' + job.job_number + '</div>';
+    html += '<div style="font-size:12px;color:#aaa;margin-bottom:6px;">' + job.job_address + '</div>';
+    if (latest) {
+      if (latest.cubic_yards) html += '<div style="font-size:12px;margin-bottom:4px;">📦 Estimated: <strong>' + latest.cubic_yards + ' cu yd</strong></div>';
+      html += '<div style="font-size:12px;margin-bottom:4px;">📅 Scheduled: <strong>' + formatDate(latest.scheduled_date) + '</strong></div>';
+      if (latest.photo_link) html += '<div style="margin-bottom:6px;"><a href="' + latest.photo_link + '" target="_blank" style="color:#66aaff;font-size:12px;">📷 View Photos</a></div>';
+    }
+    if (hasHazard) html += '<div style="font-size:12px;color:#ff6666;margin-bottom:4px;">⚠️ <strong>Hazard:</strong> ' + job.hazard_notes + '</div>';
+    if (job.foreman_notes) html += '<div style="font-size:12px;margin-bottom:4px;">📋 <strong>Notes:</strong> ' + job.foreman_notes + '</div>';
+    if (isAdmin && job.admin_notes) html += '<div style="font-size:12px;color:#ffaa44;margin-bottom:4px;">🔒 <strong>Admin:</strong> ' + job.admin_notes + '</div>';
+    html += '<div style="margin-top:10px;display:flex;gap:6px;">';
+    html += '<button onclick="getDirections(' + job.lat + ',' + job.lng + ')" style="padding:6px 10px;background:#2a6ebb;border:none;border-radius:4px;color:white;font-size:12px;cursor:pointer;">🧭 Directions</button>';
+    html += '<button onclick="shareLocation(' + job.lat + ',' + job.lng + ',\'' + job.job_number + '\')" style="padding:6px 10px;background:#44bb44;border:none;border-radius:4px;color:white;font-size:12px;cursor:pointer;">📤 Share</button>';
+    html += '</div></div>';
+    return html;
+  }
+
+  function getDirections(lat, lng) { window.open('https://www.google.com/maps/dir/?api=1&destination=' + lat + ',' + lng, '_blank'); }
+  function shareLocation(lat, lng, jobNumber) {
+    const url = 'https://www.google.com/maps?q=' + lat + ',' + lng;
+    if (navigator.share) { navigator.share({ title: 'Job ' + jobNumber, url }); }
+    else { navigator.clipboard.writeText(url).then(function() { alert('Link copied. Share with your crew.'); }); }
+  }
+
+  // ─── RENDER ────────────────────────────────────────────────────
+  function renderAdminJobList() {
+    const list = document.getElementById('adminJobList');
+    list.innerHTML = '';
+    if (!jobs.length) { list.innerHTML = '<div class="hint-text" style="padding:6px;">No job sites added yet.</div>'; return; }
+    const today = getToday();
+    jobs.forEach(function(job) {
+      const hasUpcoming = schedules.some(function(s) { return s.job_number === job.job_number && s.status === 'scheduled' && s.scheduled_date >= today; });
+      const card = document.createElement('div');
+      card.className = 'job-card' + (job.hazard_notes ? ' hazard-card' : '');
+      card.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;">' +
+          '<div style="flex:1;min-width:0;">' +
+            '<div class="job-card-title">Job ' + job.job_number + (job.hazard_notes ? ' ⚠️' : '') +
+              (!hasUpcoming ? ' <span style="font-size:9px;background:#3a2a00;color:#ffaa44;padding:1px 5px;border-radius:8px;vertical-align:middle;">Not Scheduled</span>' : '') +
+            '</div>' +
+            '<div class="job-card-detail">' + job.job_address + '</div>' +
+          '</div>' +
+          '<div style="display:flex;gap:4px;flex-shrink:0;margin-left:8px;">' +
+            '<button onclick="event.stopPropagation();editJobSite(\'' + job.id + '\')" style="padding:4px 8px;background:#555;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;">Edit</button>' +
+            '<button onclick="event.stopPropagation();deleteJobSite(\'' + job.id + '\')" style="padding:4px 8px;background:#bb2a2a;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;">Delete</button>' +
+          '</div>' +
+        '</div>' +
+        '<button onclick="event.stopPropagation();scheduleFromJobCard(\'' + job.job_number + '\')" style="margin-top:8px;width:100%;padding:5px;background:#2a8844;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;">📅 Schedule Cleanup</button>';
+      card.onclick = function() { panToJob(job.id); };
+      list.appendChild(card);
+    });
+  }
+
+  function editJobSite(jobId) {
+    const job = jobs.find(function(j) { return j.id === jobId; });
+    if (!job) return;
+    showModal(
+      '<h2>✏️ Edit Job ' + job.job_number + '</h2>' +
+      '<label style="font-size:11px;color:#aaa;">Foreman Notes</label>' +
+      '<textarea id="editForemanNotes" style="min-height:55px;">' + (job.foreman_notes || '') + '</textarea>' +
+      '<label style="font-size:11px;color:#aaa;">Hazard Notes</label>' +
+      '<textarea id="editHazardNotes" style="min-height:45px;">' + (job.hazard_notes || '') + '</textarea>' +
+      '<label style="font-size:11px;color:#aaa;">Admin Only Notes</label>' +
+      '<textarea id="editAdminNotes" style="min-height:45px;">' + (job.admin_notes || '') + '</textarea>' +
+      '<p class="hint-text">To move the meet point, delete and re-add the site.</p>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-blue" onclick="confirmEditJobSite(\'' + jobId + '\')">Save Changes</button>' +
+      '<button class="btn btn-red" onclick="closeModal()">Cancel</button>' +
+      '</div>'
+    );
+  }
+
+  async function confirmEditJobSite(jobId) {
+    const foremanNotes = document.getElementById('editForemanNotes').value.trim();
+    const hazardNotes = document.getElementById('editHazardNotes').value.trim();
+    const adminNotes = document.getElementById('editAdminNotes').value.trim();
+    const { error } = await sb.from('job_sites').update({ foreman_notes: foremanNotes, hazard_notes: hazardNotes, admin_notes: adminNotes }).eq('id', jobId);
+    if (error) { alert('Error saving: ' + error.message); return; }
+    const job = jobs.find(function(j) { return j.id === jobId; });
+    if (job) { job.foreman_notes = foremanNotes; job.hazard_notes = hazardNotes; job.admin_notes = adminNotes; }
+    const markerObj = markers.find(function(m) { return m.jobId === jobId; });
+    if (markerObj) {
+      markerObj.marker.setIcon({ path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: hazardNotes ? '#ff4444' : '#2a6ebb', fillOpacity: 1, strokeColor: '#ffffff', strokeWeight: 2 });
+      markerObj.infoWindow.setContent(buildInfoWindow(job));
+    }
+    closeModal();
+    renderAdminJobList();
+  }
+
+  function scheduleFromJobCard(jobNumber) {
+    switchTab('schedule');
+    document.getElementById('schedJobNumber').value = jobNumber;
+    document.getElementById('schedDate').focus();
+  }
+
+  function editSchedule(schedId) {
+    const sched = schedules.find(function(s) { return s.id === schedId; });
+    if (!sched) return;
+    showModal(
+      '<h2>✏️ Edit Cleanup — Job ' + sched.job_number + '</h2>' +
+      '<label style="font-size:11px;color:#aaa;">Date</label>' +
+      '<input type="date" id="editSchedDate" value="' + sched.scheduled_date + '" />' +
+      '<label style="font-size:11px;color:#aaa;">Estimated Cubic Yards</label>' +
+      '<input type="number" id="editSchedCubicYards" value="' + (sched.cubic_yards || '') + '" placeholder="Estimated Cubic Yards" />' +
+      '<label style="font-size:11px;color:#aaa;">Google Photos Link</label>' +
+      '<input type="text" id="editSchedPhotoLink" value="' + (sched.photo_link || '') + '" placeholder="Google Photos album link" />' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-blue" onclick="confirmEditSchedule(\'' + schedId + '\')">Save Changes</button>' +
+      '<button class="btn btn-red" onclick="closeModal()">Cancel</button>' +
+      '</div>'
+    );
+  }
+
+  async function confirmEditSchedule(schedId) {
+    const date = document.getElementById('editSchedDate').value;
+    const cubicYards = document.getElementById('editSchedCubicYards').value.trim();
+    const photoLink = document.getElementById('editSchedPhotoLink').value.trim();
+    if (!date) { alert('Please select a date.'); return; }
+    const { error } = await sb.from('schedules').update({ scheduled_date: date, cubic_yards: cubicYards, photo_link: photoLink, status: 'scheduled', completion_notes: null }).eq('id', schedId);
+    if (error) { alert('Error saving: ' + error.message); return; }
+    const sched = schedules.find(function(s) { return s.id === schedId; });
+    if (sched) { sched.scheduled_date = date; sched.cubic_yards = cubicYards; sched.photo_link = photoLink; sched.status = 'scheduled'; sched.completion_notes = null; }
+    schedules.sort(function(a, b) { return a.scheduled_date.localeCompare(b.scheduled_date); });
+    closeModal();
+    renderScheduleList();
+    renderFieldPanel();
+  }
+
+  async function deleteJobSite(jobId) {
+    const job = jobs.find(function(j) { return j.id === jobId; });
+    if (!job) return;
+    if (!confirm('Delete Job ' + job.job_number + '? This will also remove all scheduled cleanups for this site. This cannot be undone.')) return;
+    const { error: schedError } = await sb.from('schedules').delete().eq('job_id', jobId);
+    if (schedError) { alert('Error removing schedules: ' + schedError.message); return; }
+    const { error } = await sb.from('job_sites').delete().eq('id', jobId);
+    if (error) { alert('Error deleting job site: ' + error.message); return; }
+    const markerObj = markers.find(function(m) { return m.jobId === jobId; });
+    if (markerObj) { markerObj.infoWindow.close(); markerObj.marker.setMap(null); markers = markers.filter(function(m) { return m.jobId !== jobId; }); }
+    if (drawingPolygons[jobId]) { drawingPolygons[jobId].setMap(null); delete drawingPolygons[jobId]; }
+    schedules = schedules.filter(function(s) { return s.job_id !== jobId; });
+    jobs = jobs.filter(function(j) { return j.id !== jobId; });
+    renderAdminJobList();
+    renderScheduleList();
+    renderHistoryList();
+  }
+
+  function renderScheduleList() {
+    const list = document.getElementById('adminScheduleList');
+    list.innerHTML = '';
+    const today = getToday();
+    const upcoming = schedules.filter(function(s) { return (s.status === 'scheduled' || s.status === 'flagged') && s.scheduled_date >= today; });
+    if (!upcoming.length) { list.innerHTML = '<div class="hint-text" style="padding:6px;">No upcoming cleanups scheduled.</div>'; return; }
+    upcoming.forEach(function(ev) {
+      const markupCount = ev.encampment_markups ? ev.encampment_markups.length : 0;
+      const card = document.createElement('div');
+      const isFlagged = ev.status === 'flagged';
+      card.className = 'job-card' + (isFlagged ? ' flagged-card' : ev.scheduled_date === today ? ' today-card' : ev.scheduled_date === getTomorrow() ? ' tomorrow-card' : '');
+      card.innerHTML =
+        (isFlagged ? '<div style="background:#3a1a1a;border:1px solid #ff4444;border-radius:4px;padding:6px 8px;margin-bottom:8px;font-size:11px;color:#ff8888;">🚨 <strong>Field Report:</strong> ' + (ev.completion_notes || '') + '</div>' : '') +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">' +
+          '<div class="job-card-title" style="margin-bottom:0;">Job ' + ev.job_number + ' — ' + formatDate(ev.scheduled_date) + '</div>' +
+          '<button onclick="event.stopPropagation();editSchedule(\'' + ev.id + '\')" style="padding:3px 8px;background:#555;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;flex-shrink:0;">Edit</button>' +
+        '</div>' +
+        (ev.cubic_yards ? '<div class="job-card-detail">📦 ' + ev.cubic_yards + ' cu yd estimated</div>' : '') +
+        (ev.photo_link ? '<div class="job-card-detail"><a href="' + ev.photo_link + '" target="_blank" style="color:#66aaff;" onclick="event.stopPropagation()">📷 Photos</a></div>' : '<div class="job-card-detail" style="color:#666;">📷 No photos linked</div>') +
+        '<div class="job-card-detail" id="markupCount_' + ev.id + '" style="color:#ffcc00;">' + (markupCount > 0 ? '📍 ' + markupCount + ' encampment markers' : '') + '</div>' +
+        '<div style="display:flex;gap:6px;margin-top:8px;">' +
+        '<button id="markupBtn_' + ev.id + '" onclick="event.stopPropagation();toggleMarkupForSchedule(\'' + ev.id + '\')" style="flex:1;padding:6px;background:#6a2abb;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;">📍 Mark Encampments</button>' +
+        '<button onclick="event.stopPropagation();clearMarkupsForSchedule(\'' + ev.id + '\')" style="padding:6px 8px;background:#555;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;">🗑️</button>' +
+        '</div>' +
+        '<p class="hint-text" id="markupHint_' + ev.id + '" style="margin-top:4px;">Click to mark encampment areas for this cleanup.</p>' +
+        '<div style="display:flex;gap:6px;margin-top:6px;">' +
+        '<button onclick="event.stopPropagation();markComplete(\'' + ev.id + '\')" style="flex:1;padding:6px;background:#2a8844;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;">✅ Complete</button>' +
+        '<button onclick="event.stopPropagation();markPartial(\'' + ev.id + '\')" style="flex:1;padding:6px;background:#bb6a2a;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;">⚠️ Partial</button>' +
+        '</div>';
+      card.onclick = function() {
+        const job = jobs.find(function(j) { return j.job_number === ev.job_number; });
+        if (job) panToJob(job.id);
+        loadMarkupMarkersForSchedule(ev.id);
+      };
+      list.appendChild(card);
+    });
+  }
+
+  function filterHistory(filter) {
+    historyFilter = filter;
+    ['all','partial','completed'].forEach(function(f) {
+      const btn = document.getElementById('hist' + f.charAt(0).toUpperCase() + f.slice(1));
+      if (btn) btn.classList.toggle('active', f === filter);
+    });
+    renderHistoryList();
+  }
+
+  function renderHistoryList() {
+    const list = document.getElementById('historyList');
+    list.innerHTML = '';
+    const today = getToday();
+    let history = schedules.filter(function(s) { return s.scheduled_date < today || s.status === 'completed' || s.status === 'partial'; });
+    if (historyFilter === 'partial') history = history.filter(function(s) { return s.status === 'partial'; });
+    if (historyFilter === 'completed') history = history.filter(function(s) { return s.status === 'completed'; });
+    if (!history.length) { list.innerHTML = '<div class="hint-text" style="padding:6px;">No history found.</div>'; return; }
+    history.slice().reverse().forEach(function(ev) {
+      const card = document.createElement('div');
+      const statusClass = ev.status === 'completed' ? 'completed-card' : ev.status === 'partial' ? 'partial-card' : ev.status === 'flagged' ? 'flagged-card' : 'past-card';
+      card.className = 'job-card ' + statusClass;
+      const statusLabel = ev.status === 'completed' ? '<span class="status-badge status-completed">✅ Completed</span>' :
+        ev.status === 'partial' ? '<span class="status-badge status-partial">⚠️ Partial</span>' :
+        ev.status === 'flagged' ? '<span class="status-badge status-flagged">🚨 Field Report</span>' :
+        '<span class="status-badge status-scheduled">📅 Past</span>';
+      card.innerHTML =
+        '<div class="job-card-title">Job ' + ev.job_number + ' — ' + formatDate(ev.scheduled_date) + '</div>' +
+        statusLabel +
+        (ev.cubic_yards ? '<div class="job-card-detail">📦 Estimated: ' + ev.cubic_yards + ' cu yd</div>' : '') +
+        (ev.actual_cubic_yards ? '<div class="job-card-detail" style="color:#88ff88;">✅ Actual: ' + ev.actual_cubic_yards + ' cu yd</div>' : '') +
+        (ev.completion_notes ? '<div class="job-card-detail" style="color:#ffaa44;">📝 ' + ev.completion_notes + '</div>' : '') +
+        (ev.photo_link ? '<div class="job-card-detail"><a href="' + ev.photo_link + '" target="_blank" style="color:#66aaff;" onclick="event.stopPropagation()">📷 Photos</a></div>' : '') +
+        '<button onclick="event.stopPropagation();scheduleFromHistory(\'' + ev.job_number + '\')" style="margin-top:8px;width:100%;padding:6px;background:#2a6ebb;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;">📅 Schedule Again</button>';
+      card.onclick = function() {
+        const job = jobs.find(function(j) { return j.job_number === ev.job_number; });
+        if (job) panToJob(job.id);
+      };
+      list.appendChild(card);
+    });
+  }
+
+  function renderFieldPanel() {
+    const today = getToday(), tomorrow = getTomorrow();
+    const todayList = document.getElementById('fieldTodayList');
+    const tomorrowList = document.getElementById('fieldTomorrowList');
+    todayList.innerHTML = ''; tomorrowList.innerHTML = '';
+    const todayJobs = schedules.filter(function(s) { return s.scheduled_date === today && s.status === 'scheduled'; });
+    const tomorrowJobs = schedules.filter(function(s) { return s.scheduled_date === tomorrow && s.status === 'scheduled'; });
+    if (!todayJobs.length) todayList.innerHTML = '<div class="hint-text" style="padding:6px;">No jobs today.</div>';
+    todayJobs.forEach(function(ev) { todayList.appendChild(buildFieldCard(ev)); });
+    if (!tomorrowJobs.length) tomorrowList.innerHTML = '<div class="hint-text" style="padding:6px;">No jobs tomorrow.</div>';
+    tomorrowJobs.forEach(function(ev) { tomorrowList.appendChild(buildFieldCard(ev)); });
+  }
+
+  function buildFieldCard(ev) {
+    const job = jobs.find(function(j) { return j.job_number === ev.job_number; });
+    const markupCount = ev.encampment_markups ? ev.encampment_markups.length : 0;
+    const card = document.createElement('div');
+    card.className = 'job-card today-card';
+    card.innerHTML =
+      '<div class="job-card-title">Job ' + ev.job_number + '</div>' +
+      (job ? '<div class="job-card-detail">' + job.job_address + '</div>' : '') +
+      (ev.cubic_yards ? '<div class="job-card-detail">📦 ' + ev.cubic_yards + ' cu yd estimated</div>' : '') +
+      (job && job.hazard_notes ? '<div class="job-card-detail" style="color:#ff8888;">⚠️ ' + job.hazard_notes + '</div>' : '') +
+      (job && job.foreman_notes ? '<div class="job-card-detail">📋 ' + job.foreman_notes + '</div>' : '') +
+      (markupCount > 0 ? '<div class="job-card-detail" style="color:#ffcc00;">📍 ' + markupCount + ' encampment areas marked — see map</div>' : '') +
+      '<div style="display:flex;gap:6px;margin-top:8px;">' +
+      (job ? '<button onclick="event.stopPropagation();getDirections(' + job.lat + ',' + job.lng + ')" style="flex:1;padding:6px;background:#2a6ebb;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;">🧭 Directions</button>' : '') +
+      (job ? '<button onclick="event.stopPropagation();shareLocation(' + job.lat + ',' + job.lng + ',\'' + ev.job_number + '\')" style="flex:1;padding:6px;background:#44bb44;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;">📤 Share</button>' : '') +
+      (ev.photo_link ? '<a href="' + ev.photo_link + '" target="_blank" onclick="event.stopPropagation()" style="flex:1;padding:6px;background:#555;border-radius:4px;color:white;font-size:11px;text-align:center;text-decoration:none;">📷 Photos</a>' : '') +
+      '</div>' +
+      '<button onclick="event.stopPropagation();reportIssue(\'' + ev.id + '\')" style="margin-top:6px;width:100%;padding:6px;background:#bb6a2a;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;">🚨 Report Issue</button>';
+    if (job) {
+      card.onclick = function(e) {
+        if (e.target.tagName !== 'BUTTON' && e.target.tagName !== 'A') {
+          panToJob(job.id);
+          loadMarkupMarkersForSchedule(ev.id);
+          closeMobileDrawer();
+        }
+      };
+    }
+    return card;
+  }
+
+  async function renderUserList() {
+    const list = document.getElementById('userList');
+    list.innerHTML = '<div class="loading">Loading...</div>';
+    const { data } = await sb.from('users').select('*').order('created_at');
+    list.innerHTML = '';
+    if (!data || !data.length) { list.innerHTML = '<div class="hint-text" style="padding:6px;">No users found.</div>'; return; }
+    data.forEach(function(user) {
+      const card = document.createElement('div');
+      card.className = 'user-card';
+      card.innerHTML = '<div><div style="font-size:13px;">' + user.username + '</div><div><span class="role-badge role-' + user.role + '">' + user.role + '</span></div></div>' +
+        (user.username !== currentUser ? '<button onclick="deleteUser(\'' + user.id + '\')" style="padding:4px 8px;background:#bb2a2a;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;">Remove</button>' : '<span style="font-size:11px;color:#666;">You</span>');
+      list.appendChild(card);
+    });
+  }
+
+  async function createUser() {
+    const username = document.getElementById('newUsername').value.trim().toLowerCase();
+    const password = document.getElementById('newPassword').value;
+    const role = document.getElementById('newRole').value;
+    if (!username || !password) { alert('Please enter a username and password.'); return; }
+    const { error } = await sb.from('users').insert({ username, password, role });
+    if (error) { alert(error.message.includes('unique') ? 'Username already exists.' : error.message); return; }
+    document.getElementById('newUsername').value = '';
+    document.getElementById('newPassword').value = '';
+    renderUserList();
+    alert('Account created for ' + username);
+  }
+
+  async function deleteUser(userId) {
+    if (!confirm('Remove this user?')) return;
+    await sb.from('users').delete().eq('id', userId);
+    renderUserList();
+  }
+
+  // ─── HELPERS ───────────────────────────────────────────────────
+  function getToday() { return new Date().toISOString().split('T')[0]; }
+  function getTomorrow() { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().split('T')[0]; }
+  function formatDate(dateStr) { const p = dateStr.split('-'); return p[1] + '/' + p[2] + '/' + p[0]; }
+
+  function panToJob(jobId) {
+    const job = jobs.find(function(j) { return j.id === jobId; });
+    if (job) {
+      map.panTo({ lat: job.lat, lng: job.lng }); map.setZoom(16);
+      const markerObj = markers.find(function(m) { return m.jobId === jobId; });
+      if (markerObj) { markerObj.infoWindow.setContent(buildInfoWindow(job)); markerObj.infoWindow.open(map, markerObj.marker); }
+      currentDrawingJobId = job.id;
+      if (currentRole === 'admin' && !isPreviewing) document.getElementById('drawSection').style.display = 'flex';
+    }
+  }
+
+  function clearJobForm() {
+    ['jobNumber','foremenNotes','hazardNotes','adminNotes'].forEach(function(id) { document.getElementById(id).value = ''; });
+    const js = document.getElementById('jobSearch'); if (js) js.value = '';
+    const jc = document.getElementById('jobCoords'); if (jc) jc.value = '';
+    document.getElementById('pinControls').style.display = 'none';
+    document.getElementById('drawSection').style.display = 'none';
+    ['locSearch','locCoords','locPin'].forEach(function(id) { document.getElementById(id).style.display = 'none'; });
+  }
+
+  function clearScheduleForm() {
+    ['schedJobNumber','schedDate','schedCubicYards','schedPhotoLink'].forEach(function(id) { document.getElementById(id).value = ''; });
+  }
+
+  // ─── MOBILE DRAWER ─────────────────────────────────────────────
+  function toggleMobileDrawer() {
+    const sidebar = document.getElementById('sidebar');
+    if (sidebar.classList.contains('drawer-open')) { closeMobileDrawer(); } else { openMobileDrawer(); }
+  }
+  function openMobileDrawer() {
+    document.getElementById('sidebar').classList.add('drawer-open');
+    document.getElementById('mobileOverlay').classList.add('visible');
+    document.getElementById('mobileDrawerBtn').classList.add('open');
+    document.getElementById('mobileDrawerBtn').textContent = '✕';
+  }
+  function closeMobileDrawer() {
+    document.getElementById('sidebar').classList.remove('drawer-open');
+    document.getElementById('mobileOverlay').classList.remove('visible');
+    document.getElementById('mobileDrawerBtn').classList.remove('open');
+    document.getElementById('mobileDrawerBtn').textContent = '☰';
+  }
+
+  // ─── PROPERTY OWNERSHIP LAYER ──────────────────────────────────
+  function togglePropertyLayer() {
+    if (propertyLayerActive) { stopPropertyLayer(); return; }
+    stopAllMapModes();
+    propertyLayerActive = true;
+    const btn = document.getElementById('propertyLayerBtn');
+    btn.classList.add('active'); btn.textContent = '🏠 Property: ON';
+    map.setOptions({ draggableCursor: 'crosshair' });
+    setMapListener(function(e) { queryParcel(e.latLng.lat(), e.latLng.lng()); });
+  }
+
+  function stopPropertyLayer() {
+    if (!propertyLayerActive) return;
+    propertyLayerActive = false;
+    const btn = document.getElementById('propertyLayerBtn');
+    if (btn) { btn.classList.remove('active'); btn.textContent = '🏠 Property'; }
+    map.setOptions({ draggableCursor: null });
+    if (parcelPolygon) { parcelPolygon.setMap(null); parcelPolygon = null; }
+    if (propertyInfoWindow) { propertyInfoWindow.close(); propertyInfoWindow = null; }
+  }
+
+  async function queryParcel(lat, lng) {
+    const base = 'https://gis.clarkcountynv.gov/arcgis/rest/services/Assessor/MapServer/0/query';
+    const params = new URLSearchParams({
+      geometry: lng + ',' + lat, geometryType: 'esriGeometryPoint',
+      inSR: '4326', spatialRel: 'esriSpatialRelIntersects',
+      outFields: '*', returnGeometry: 'true', outSR: '4326', f: 'json'
+    });
+    if (propertyInfoWindow) { propertyInfoWindow.close(); propertyInfoWindow = null; }
+    if (parcelPolygon) { parcelPolygon.setMap(null); parcelPolygon = null; }
+    try {
+      const res = await fetch(base + '?' + params);
+      const data = await res.json();
+      if (!data.features || !data.features.length) {
+        propertyInfoWindow = new google.maps.InfoWindow({ position: { lat, lng },
+          content: '<div style="background:#2a2a2a;color:#aaa;padding:10px;border-radius:6px;font-size:12px;font-family:Arial,sans-serif;">No parcel data found at this point.</div>' });
+        propertyInfoWindow.open(map); return;
+      }
+      const f = data.features[0], a = f.attributes;
+      const apn      = a.APN || a.PARCELNO || a.ParcelNo || 'N/A';
+      const owner    = a.OWNER || a.OwnerName || a.OWNERNAME || 'N/A';
+      const mailAdd  = a.MAIL_ADD || a.MailAdd || a.MAILADDR || '';
+      const mailCSZ  = a.MAIL_CSZ || a.MailCSZ || '';
+      const landUse  = a.LANDUSE || a.LandUse || a.LUCODE || a.LandUseDescription || '';
+      if (f.geometry && f.geometry.rings) {
+        const paths = f.geometry.rings.map(function(ring) {
+          return ring.map(function(pt) { return { lat: pt[1], lng: pt[0] }; });
+        });
+        parcelPolygon = new google.maps.Polygon({
+          paths, strokeColor: '#00ffff', strokeOpacity: 1, strokeWeight: 2,
+          fillColor: '#00ffff', fillOpacity: 0.1, map, clickable: false
+        });
+      }
+      propertyInfoWindow = new google.maps.InfoWindow({ position: { lat, lng },
+        content: '<div style="background:#2a2a2a;color:white;padding:12px;border-radius:6px;font-family:Arial,sans-serif;min-width:220px;">' +
+          '<div style="font-weight:bold;font-size:13px;margin-bottom:8px;">🏠 Parcel Info</div>' +
+          '<div style="font-size:12px;margin-bottom:4px;"><strong>APN:</strong> ' + apn + '</div>' +
+          '<div style="font-size:12px;margin-bottom:4px;"><strong>Owner:</strong> ' + owner + '</div>' +
+          (mailAdd ? '<div style="font-size:12px;margin-bottom:4px;"><strong>Mailing:</strong> ' + mailAdd + (mailCSZ ? ', ' + mailCSZ : '') + '</div>' : '') +
+          (landUse ? '<div style="font-size:12px;color:#aaa;">Land Use: ' + landUse + '</div>' : '') +
+          '</div>'
+      });
+      propertyInfoWindow.open(map);
+    } catch(err) {
+      console.error('Parcel query error:', err);
+      propertyInfoWindow = new google.maps.InfoWindow({ position: { lat, lng },
+        content: '<div style="background:#2a2a2a;color:#ff8888;padding:10px;border-radius:6px;font-size:12px;font-family:Arial,sans-serif;">Could not fetch parcel data. Check your connection.</div>' });
+      propertyInfoWindow.open(map);
+    }
+  }
+
+  // ─── LAW ENFORCEMENT JURISDICTION LAYER ────────────────────────
+  async function toggleJurisdictionLayer() {
+    jurisdictionLayerActive = !jurisdictionLayerActive;
+    const btn = document.getElementById('jurisdictionLayerBtn');
+    if (jurisdictionLayerActive) {
+      btn.classList.add('active'); btn.textContent = '🚔 Jurisdictions: ON';
+      await loadJurisdictionContacts();
+      await loadJurisdictionBoundaries();
+    } else {
+      btn.classList.remove('active'); btn.textContent = '🚔 Jurisdictions';
+      jurisdictionPolygons.forEach(function(p) { p.setMap(null); });
+      jurisdictionPolygons = [];
+    }
+  }
+
+  async function loadJurisdictionContacts() {
+    const { data } = await sb.from('jurisdiction_contacts').select('*');
+    if (data) { jurisdictionContacts = {}; data.forEach(function(r) { jurisdictionContacts[r.jurisdiction_name] = r; }); }
+  }
+
+  async function loadJurisdictionBoundaries() {
+    const cities = Object.keys(AGENCY_MAP);
+    const where = "STATEFP='32' AND (" + cities.map(function(c) { return "NAME='" + c + "'"; }).join(' OR ') + ")";
+    const url = 'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Places_CouSub_ConCity_SubMCD/MapServer/14/query?' +
+      new URLSearchParams({ where, outFields: 'NAME', returnGeometry: 'true', outSR: '4326', f: 'json' });
+    try {
+      const res = await fetch(url);
+      const data = await res.json();
+      if (!data.features || !data.features.length) { alert('No jurisdiction boundaries returned. The Census service may be temporarily unavailable.'); return; }
+      data.features.forEach(function(f) {
+        const name = f.attributes.NAME;
+        const agency = AGENCY_MAP[name];
+        if (!agency || !f.geometry || !f.geometry.rings) return;
+        const paths = f.geometry.rings.map(function(ring) {
+          return ring.map(function(pt) { return { lat: pt[1], lng: pt[0] }; });
+        });
+        const poly = new google.maps.Polygon({
+          paths, strokeColor: agency.color, strokeOpacity: 0.85, strokeWeight: 2,
+          fillColor: agency.color, fillOpacity: 0.12, map, zIndex: 1
+        });
+        poly.addListener('click', function(e) {
+          if (markingUp || droppingPin || drawing || movingPin || propertyLayerActive) return;
+          showJurisdictionInfo(e.latLng, name, agency.name, agency.color);
+        });
+        jurisdictionPolygons.push(poly);
+      });
+    } catch(err) {
+      console.error('Jurisdiction load error:', err);
+      alert('Could not load jurisdiction boundaries. Check your internet connection.');
+      jurisdictionLayerActive = false;
+      document.getElementById('jurisdictionLayerBtn').classList.remove('active');
+      document.getElementById('jurisdictionLayerBtn').textContent = '🚔 Jurisdictions';
+    }
+  }
+
+  function showJurisdictionInfo(latLng, cityName, agencyName, color) {
+    const c = jurisdictionContacts[cityName] || {};
+    const iw = new google.maps.InfoWindow({ position: latLng,
+      content: '<div style="background:#2a2a2a;color:white;padding:12px;border-radius:6px;font-family:Arial,sans-serif;min-width:240px;">' +
+        '<div style="font-weight:bold;font-size:13px;margin-bottom:3px;color:' + color + ';">🚔 ' + agencyName + '</div>' +
+        '<div style="font-size:11px;color:#888;margin-bottom:10px;">' + cityName + '</div>' +
+        (c.contact_name ? '<div style="font-size:12px;margin-bottom:4px;">👤 <strong>' + c.contact_name + '</strong></div>' : '') +
+        (c.phone ? '<div style="font-size:12px;margin-bottom:4px;">📞 <a href="tel:' + c.phone + '" style="color:#66aaff;">' + c.phone + '</a></div>' : '') +
+        (c.notes ? '<div style="font-size:12px;color:#ffcc88;margin-bottom:8px;">📝 ' + c.notes + '</div>' : '') +
+        (!c.contact_name && !c.phone && !c.notes ? '<div style="font-size:11px;color:#666;margin-bottom:8px;">No contact info saved yet.</div>' : '') +
+        '<button onclick="editJurisdictionContact(\'' + cityName.replace(/'/g,"\\'") + '\',\'' + agencyName.replace(/'/g,"\\'") + '\')" ' +
+          'style="width:100%;padding:6px;background:#2a6ebb;border:none;border-radius:4px;color:white;font-size:11px;cursor:pointer;">✏️ Edit Contact Info</button>' +
+        '</div>'
+    });
+    iw.open(map);
+  }
+
+  function editJurisdictionContact(cityName, agencyName) {
+    const c = jurisdictionContacts[cityName] || {};
+    showModal(
+      '<h2>🚔 ' + agencyName + '</h2>' +
+      '<p class="hint-text" style="margin-bottom:6px;">' + cityName + ' — save your contacts for this agency.</p>' +
+      '<label style="font-size:11px;color:#aaa;">Contact Name / Role</label>' +
+      '<input type="text" id="jContactName" placeholder="e.g. Sgt. Martinez — Community Liaison" value="' + (c.contact_name || '') + '" />' +
+      '<label style="font-size:11px;color:#aaa;">Phone Number</label>' +
+      '<input type="text" id="jPhone" placeholder="e.g. 702-828-3111" value="' + (c.phone || '') + '" />' +
+      '<label style="font-size:11px;color:#aaa;">Notes</label>' +
+      '<textarea id="jNotes" placeholder="e.g. Non-emergency only, best to call morning shifts...">' + (c.notes || '') + '</textarea>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-blue" onclick="saveJurisdictionContact(\'' + cityName.replace(/'/g,"\\'") + '\')">Save</button>' +
+      '<button class="btn btn-red" onclick="closeModal()">Cancel</button>' +
+      '</div>'
+    );
+  }
+
+  async function saveJurisdictionContact(cityName) {
+    const contactName = document.getElementById('jContactName').value.trim();
+    const phone = document.getElementById('jPhone').value.trim();
+    const notes = document.getElementById('jNotes').value.trim();
+    const { error } = await sb.from('jurisdiction_contacts').upsert(
+      { jurisdiction_name: cityName, contact_name: contactName, phone, notes, updated_at: new Date().toISOString() },
+      { onConflict: 'jurisdiction_name' }
+    );
+    if (error) { alert('Error saving contact: ' + error.message); return; }
+    jurisdictionContacts[cityName] = { jurisdiction_name: cityName, contact_name: contactName, phone, notes };
+    closeModal();
+  }
+
+  // ─── MAP INIT ──────────────────────────────────────────────────
+  function initMap() {
+    map = new google.maps.Map(document.getElementById('map'), {
+      zoom: 11, center: { lat: 36.1699, lng: -115.1398 },
+      mapTypeId: 'roadmap', styles: mapStyles,
+      mapTypeControl: true, streetViewControl: false, fullscreenControl: true
+    });
+    autocompleteService = new google.maps.places.AutocompleteService();
+  }
+</script>
+
+<script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyA_BADCXWdGal1QtOvRimJC1_3SqSmISo8&libraries=places&callback=initMap"></script>
+</body>
+</html>
