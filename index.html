@@ -377,11 +377,11 @@
   let propertyLayerActive = false, propertyInfoWindow = null, parcelPolygon = null;
   let jurisdictionLayerActive = false, jurisdictionPolygons = [], jurisdictionContacts = {};
   const AGENCY_MAP = {
-    'Las Vegas':       { name: 'Las Vegas Metropolitan Police (LVMPD)', color: '#2255cc' },
-    'Henderson':       { name: 'Henderson Police Department',           color: '#22aa44' },
-    'North Las Vegas': { name: 'North Las Vegas Police Department',     color: '#8822cc' },
-    'Boulder City':    { name: 'Boulder City Police Department',        color: '#cc7722' },
-    'Mesquite':        { name: 'Mesquite Police Department',            color: '#cc2277' }
+    'Las Vegas city':       { name: 'Las Vegas Metropolitan Police (LVMPD)', color: '#2255cc' },
+    'Henderson city':       { name: 'Henderson Police Department',           color: '#22aa44' },
+    'North Las Vegas city': { name: 'North Las Vegas Police Department',     color: '#8822cc' },
+    'Boulder City city':    { name: 'Boulder City Police Department',        color: '#cc7722' },
+    'Mesquite city':        { name: 'Mesquite Police Department',            color: '#cc2277' }
   };
 
   const mapStyles = [
@@ -1386,53 +1386,61 @@
   }
 
   async function queryParcel(lat, lng) {
-    const base = 'https://gis.clarkcountynv.gov/arcgis/rest/services/Assessor/MapServer/0/query';
+    if (propertyInfoWindow) { propertyInfoWindow.close(); propertyInfoWindow = null; }
+    if (parcelPolygon) { parcelPolygon.setMap(null); parcelPolygon = null; }
+    const fallbackContent = '<div style="background:#1c2333;color:white;padding:12px;border-radius:6px;font-family:Arial,sans-serif;min-width:220px;">' +
+      '<div style="font-weight:bold;font-size:13px;margin-bottom:6px;">🏠 Parcel Lookup</div>' +
+      '<div style="font-size:12px;color:#8b92a8;margin-bottom:10px;">Direct parcel data unavailable — look up this location on the Clark County Assessor site.</div>' +
+      '<a href="https://maps.clarkcountynv.gov/assessor/?extent=' + (lng-0.001) + ',' + (lat-0.001) + ',' + (lng+0.001) + ',' + (lat+0.001) + '" target="_blank" ' +
+      'style="display:block;padding:7px;background:#4f7ddb;border-radius:6px;color:white;font-size:12px;text-align:center;text-decoration:none;font-weight:600;">Open Clark County Assessor ↗</a>' +
+      '</div>';
+    // Try ArcGIS Online hosted service first (has CORS support)
+    const endpoints = [
+      'https://services1.arcgis.com/X1hcdGx5Fxqn4d0j/arcgis/rest/services/Parcels/FeatureServer/0/query',
+      'https://gis.clarkcountynv.gov/arcgis/rest/services/Assessor/MapServer/0/query'
+    ];
     const params = new URLSearchParams({
       geometry: lng + ',' + lat, geometryType: 'esriGeometryPoint',
       inSR: '4326', spatialRel: 'esriSpatialRelIntersects',
       outFields: '*', returnGeometry: 'true', outSR: '4326', f: 'json'
     });
-    if (propertyInfoWindow) { propertyInfoWindow.close(); propertyInfoWindow = null; }
-    if (parcelPolygon) { parcelPolygon.setMap(null); parcelPolygon = null; }
-    try {
-      const res = await fetch(base + '?' + params);
-      const data = await res.json();
-      if (!data.features || !data.features.length) {
-        propertyInfoWindow = new google.maps.InfoWindow({ position: { lat, lng },
-          content: '<div style="background:#2a2a2a;color:#aaa;padding:10px;border-radius:6px;font-size:12px;font-family:Arial,sans-serif;">No parcel data found at this point.</div>' });
-        propertyInfoWindow.open(map); return;
-      }
-      const f = data.features[0], a = f.attributes;
-      const apn      = a.APN || a.PARCELNO || a.ParcelNo || 'N/A';
-      const owner    = a.OWNER || a.OwnerName || a.OWNERNAME || 'N/A';
-      const mailAdd  = a.MAIL_ADD || a.MailAdd || a.MAILADDR || '';
-      const mailCSZ  = a.MAIL_CSZ || a.MailCSZ || '';
-      const landUse  = a.LANDUSE || a.LandUse || a.LUCODE || a.LandUseDescription || '';
-      if (f.geometry && f.geometry.rings) {
-        const paths = f.geometry.rings.map(function(ring) {
-          return ring.map(function(pt) { return { lat: pt[1], lng: pt[0] }; });
-        });
-        parcelPolygon = new google.maps.Polygon({
-          paths, strokeColor: '#00ffff', strokeOpacity: 1, strokeWeight: 2,
-          fillColor: '#00ffff', fillOpacity: 0.1, map, clickable: false
-        });
-      }
-      propertyInfoWindow = new google.maps.InfoWindow({ position: { lat, lng },
-        content: '<div style="background:#2a2a2a;color:white;padding:12px;border-radius:6px;font-family:Arial,sans-serif;min-width:220px;">' +
-          '<div style="font-weight:bold;font-size:13px;margin-bottom:8px;">🏠 Parcel Info</div>' +
-          '<div style="font-size:12px;margin-bottom:4px;"><strong>APN:</strong> ' + apn + '</div>' +
-          '<div style="font-size:12px;margin-bottom:4px;"><strong>Owner:</strong> ' + owner + '</div>' +
-          (mailAdd ? '<div style="font-size:12px;margin-bottom:4px;"><strong>Mailing:</strong> ' + mailAdd + (mailCSZ ? ', ' + mailCSZ : '') + '</div>' : '') +
-          (landUse ? '<div style="font-size:12px;color:#aaa;">Land Use: ' + landUse + '</div>' : '') +
-          '</div>'
-      });
-      propertyInfoWindow.open(map);
-    } catch(err) {
-      console.error('Parcel query error:', err);
-      propertyInfoWindow = new google.maps.InfoWindow({ position: { lat, lng },
-        content: '<div style="background:#2a2a2a;color:#ff8888;padding:10px;border-radius:6px;font-size:12px;font-family:Arial,sans-serif;">Could not fetch parcel data. Check your connection.</div>' });
-      propertyInfoWindow.open(map);
+    let data = null;
+    for (const base of endpoints) {
+      try {
+        const res = await fetch(base + '?' + params);
+        const json = await res.json();
+        if (json.features && json.features.length) { data = json; break; }
+      } catch(e) { continue; }
     }
+    if (!data) {
+      propertyInfoWindow = new google.maps.InfoWindow({ position: { lat, lng }, content: fallbackContent });
+      propertyInfoWindow.open(map); return;
+    }
+    const f = data.features[0], a = f.attributes;
+    const apn     = a.APN || a.PARCELNO || a.ParcelNo || a.apn || 'N/A';
+    const owner   = a.OWNER || a.OwnerName || a.OWNERNAME || a.owner_name || 'N/A';
+    const mailAdd = a.MAIL_ADD || a.MailAdd || a.MAILADDR || a.owner_address || '';
+    const mailCSZ = a.MAIL_CSZ || a.MailCSZ || a.owner_city_state || '';
+    const landUse = a.LANDUSE || a.LandUse || a.LUCODE || a.land_use || '';
+    if (f.geometry && f.geometry.rings) {
+      const paths = f.geometry.rings.map(function(ring) {
+        return ring.map(function(pt) { return { lat: pt[1], lng: pt[0] }; });
+      });
+      parcelPolygon = new google.maps.Polygon({
+        paths, strokeColor: '#00ffff', strokeOpacity: 1, strokeWeight: 2,
+        fillColor: '#00ffff', fillOpacity: 0.1, map, clickable: false
+      });
+    }
+    propertyInfoWindow = new google.maps.InfoWindow({ position: { lat, lng },
+      content: '<div style="background:#1c2333;color:white;padding:12px;border-radius:6px;font-family:Arial,sans-serif;min-width:220px;">' +
+        '<div style="font-weight:bold;font-size:13px;margin-bottom:8px;">🏠 Parcel Info</div>' +
+        '<div style="font-size:12px;margin-bottom:4px;"><strong>APN:</strong> ' + apn + '</div>' +
+        '<div style="font-size:12px;margin-bottom:4px;"><strong>Owner:</strong> ' + owner + '</div>' +
+        (mailAdd ? '<div style="font-size:12px;margin-bottom:4px;"><strong>Mailing:</strong> ' + mailAdd + (mailCSZ ? ', ' + mailCSZ : '') + '</div>' : '') +
+        (landUse ? '<div style="font-size:12px;color:#8b92a8;">Land Use: ' + landUse + '</div>' : '') +
+        '</div>'
+    });
+    propertyInfoWindow.open(map);
   }
 
   // ─── LAW ENFORCEMENT JURISDICTION LAYER ────────────────────────
@@ -1457,17 +1465,18 @@
 
   async function loadJurisdictionBoundaries() {
     const cities = Object.keys(AGENCY_MAP);
-    const where = "STATEFP='32' AND (" + cities.map(function(c) { return "NAME='" + c + "'"; }).join(' OR ') + ")";
-    const url = 'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Places_CouSub_ConCity_SubMCD/MapServer/14/query?' +
+    const where = "STATE='32' AND (" + cities.map(function(c) { return "NAME='" + c + "'"; }).join(' OR ') + ")";
+    const url = 'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/Places_CouSub_ConCity_SubMCD/MapServer/4/query?' +
       new URLSearchParams({ where, outFields: 'NAME', returnGeometry: 'true', outSR: '4326', f: 'json' });
     try {
       const res = await fetch(url);
       const data = await res.json();
       if (!data.features || !data.features.length) { alert('No jurisdiction boundaries returned. The Census service may be temporarily unavailable.'); return; }
       data.features.forEach(function(f) {
-        const name = f.attributes.NAME;
-        const agency = AGENCY_MAP[name];
+        const rawName = f.attributes.NAME;
+        const agency = AGENCY_MAP[rawName];
         if (!agency || !f.geometry || !f.geometry.rings) return;
+        const name = rawName.replace(/ city$/, '');
         const paths = f.geometry.rings.map(function(ring) {
           return ring.map(function(pt) { return { lat: pt[1], lng: pt[0] }; });
         });
