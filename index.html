@@ -1466,8 +1466,8 @@
   async function loadJurisdictionBoundaries() {
     try {
       // First load Clark County boundary as the LVMPD base layer (unincorporated areas)
-      const countyUrl = 'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/13/query?' +
-        new URLSearchParams({ where: "STATE='32' AND COUNTY='003'", outFields: 'NAME', returnGeometry: 'true', outSR: '4326', f: 'json' });
+      const countyUrl = 'https://tigerweb.geo.census.gov/arcgis/rest/services/TIGERweb/State_County/MapServer/1/query?' +
+        new URLSearchParams({ where: "STATEFP='32' AND COUNTYFP='003'", outFields: 'NAME', returnGeometry: 'true', outSR: '4326', f: 'json' });
       const countyRes = await fetch(countyUrl);
       const countyData = await countyRes.json();
       if (countyData.features && countyData.features.length) {
